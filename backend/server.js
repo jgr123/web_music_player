@@ -79,7 +79,8 @@ app.get('/api/favorites/:user_id', (req, res) => {
   const { user_id } = req.params;
   console.log("Chegou aqui /api/favorites/:user_id");
   db.all(
-    `SELECT mu.id_musica as id, 
+    `SELECT mu.id_musica as id,
+            mu.id_musica, 
             mu.nome_cantor_musica_hunterfm, 
             r.rating,
             concat("http://170.233.196.50:3000/music/", mu.arquivo) as audio_url

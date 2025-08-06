@@ -7,251 +7,215 @@ import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { FaThumbsUp, FaThumbsDown } from 'react-icons/fa';
 
 function App() {
-    const [playlists, setPlaylists] = useState([]);
-    const [selectedRadio, setSelectedRadio] = useState('2');
-    const [selectedDate, setSelectedDate] = useState('2025-03-23');
-    const [currentTrack, setCurrentTrack] = useState(null);
-    const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [shuffleMode, setShuffleMode] = useState(false);
-    const [favoritesOnly, setFavoritesOnly] = useState(false);
-    const [favorites, setFavorites] = useState([]);
-    const [favoriteTracks, setFavoriteTracks] = useState([]);
-    const [ratings, setRatings] = useState([]);
-    const userId = 1; // ID do usuário
+  const [playlists, setPlaylists] = useState([]);
+  const [selectedRadio, setSelectedRadio] = useState('2');
+  const [selectedDate, setSelectedDate] = useState('2025-03-23');
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [shuffleMode, setShuffleMode] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [ratings, setRatings] = useState([]);
+  const [favoriteTracks, setFavoriteTracks] = useState([]);
 
+  const userId = 1;
+  const activeItemRef = useRef(null);
+  const isOnline = useNetworkStatus();
 
-    // Dentro do componente App
-    const playlistRef = useRef(null);
-    const activeItemRef = useRef(null);
-    const isOnline = useNetworkStatus();
-
-
-    
   const fetchRatings = async () => {
     try {
       const res = await axios.get(`http://170.233.196.50:5202/api/ratings/${userId}`);
       setRatings(res.data);
-      setFavorites(res.data.filter(r => r.rating === 1).map(r => r.musica_id));
     } catch (err) {
       console.error("Erro ao carregar avaliações:", err);
     }
   };
 
-    const fetchFavorites = async () => {
+  const fetchFavorites = async () => {
     try {
-        const res = await axios.get(`http://170.233.196.50:5202/api/favorites/${userId}`);
-        setFavoriteTracks(res.data);
+      const res = await axios.get(`http://170.233.196.50:5202/api/favorites/${userId}`);
+      // Adiciona id_musica ao track para avaliações
+      const withIdMusica = res.data.map(t => ({ ...t, id_musica: t.id }));
+      setFavoriteTracks(withIdMusica);
     } catch (err) {
-        console.error("Erro ao carregar músicas favoritas:", err);
+      console.error("Erro ao carregar músicas favoritas:", err);
     }
-    };
+  };
 
-    const fetchPlaylists = async () => {
-        try {
-         //   const response = await axios.get('http://192.168.1.232:5000/api/playlists', {
-            const response = await axios.get('http://170.233.196.50:5202/api/playlists', {
-                params: {
-                    id_radio_hunter: selectedRadio,
-                    data: selectedDate.replace(/-/g, '/')
-                }
-            });
-            setPlaylists(response.data);
-            if (response.data.length > 0) {
-                setCurrentTrack(response.data[0]);
-                // Cache as primeiras 10 músicas
-                cacheTracks(response.data.slice(0, 10));
-            }
-            if (response.data.length > 0 && !currentTrack) {
-                setCurrentTrack(response.data[0]);
-            }
-        } catch (error) {
-            console.error('Erro ao buscar playlists:', error);
+  const fetchPlaylists = async () => {
+    try {
+      const response = await axios.get('http://170.233.196.50:5202/api/playlists', {
+        params: {
+          id_radio_hunter: selectedRadio,
+          data: selectedDate.replace(/-/g, '/')
         }
-    };
+      });
 
-const nextTrack = () => {
-  const activeList = favoritesOnly ? favoriteTracks : playlists;
-  if (activeList.length === 0) return;
+      const data = response.data.map(t => ({
+        ...t,
+        id_musica: t.id_musica ?? t.id // garante que id_musica esteja presente
+      }));
 
-  let newIndex;
-  if (shuffleMode) {
-    let randomIndex;
-    do {
-      randomIndex = Math.floor(Math.random() * activeList.length);
-    } while (randomIndex === currentTrackIndex && activeList.length > 1);
-    newIndex = randomIndex;
-  } else {
-    newIndex = (currentTrackIndex + 1) % activeList.length;
-  }
+      setPlaylists(data);
 
-  let attempts = 0;
-  while (!activeList[newIndex]?.audio_url && attempts < activeList.length) {
-    newIndex = shuffleMode
-      ? Math.floor(Math.random() * activeList.length)
-      : (newIndex + 1) % activeList.length;
-    attempts++;
-  }
+      if (data.length > 0 && !currentTrack) {
+        setCurrentTrack(data[0]);
+        cacheTracks(data.slice(0, 10));
+      }
+    } catch (error) {
+      console.error('Erro ao buscar playlists:', error);
+    }
+  };
 
-  if (activeList[newIndex]?.audio_url) {
+  const filteredPlaylists = favoritesOnly ? favoriteTracks : playlists;
+
+  const nextTrack = () => {
+    const activeList = filteredPlaylists;
+    if (activeList.length === 0) return;
+
+    let newIndex;
+    if (shuffleMode) {
+      do {
+        newIndex = Math.floor(Math.random() * activeList.length);
+      } while (newIndex === currentTrackIndex && activeList.length > 1);
+    } else {
+      newIndex = (currentTrackIndex + 1) % activeList.length;
+    }
+
+    let attempts = 0;
+    while (!activeList[newIndex]?.audio_url && attempts < activeList.length) {
+      newIndex = shuffleMode
+        ? Math.floor(Math.random() * activeList.length)
+        : (newIndex + 1) % activeList.length;
+      attempts++;
+    }
+
+    if (activeList[newIndex]?.audio_url) {
+      setCurrentTrackIndex(newIndex);
+      setCurrentTrack(activeList[newIndex]);
+      setIsPlaying(true);
+      cacheTracks(activeList.slice(newIndex, newIndex + 10));
+    } else {
+      setIsPlaying(false);
+    }
+  };
+
+  const prevTrack = () => {
+    const activeList = filteredPlaylists;
+    if (activeList.length === 0) return;
+
+    const newIndex = (currentTrackIndex - 1 + activeList.length) % activeList.length;
     setCurrentTrackIndex(newIndex);
     setCurrentTrack(activeList[newIndex]);
     setIsPlaying(true);
-    cacheTracks(activeList.slice(newIndex, newIndex + 10));
-  } else {
-    setIsPlaying(false);
-  }
-};
+  };
 
-
-const prevTrack = () => {
-  const activeList = favoritesOnly ? favoriteTracks : playlists;
-  if (activeList.length === 0) return;
-
-  const newIndex = (currentTrackIndex - 1 + activeList.length) % activeList.length;
-  setCurrentTrackIndex(newIndex);
-  setCurrentTrack(activeList[newIndex]);
-  setIsPlaying(true);
-};
-
-
-    
-    // Efeito para rolagem automática
-    useEffect(() => {
+  // Scroll automático para a música atual
+  useEffect(() => {
     if (activeItemRef.current) {
-        activeItemRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-        });
+      activeItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-    }, [currentTrack]);
+  }, [currentTrack]);
 
-    useEffect(() => {
-        fetchPlaylists();
-    }, [selectedRadio, selectedDate]);
+  useEffect(() => {
+    fetchPlaylists();
+    fetchRatings();
+  }, [selectedRadio, selectedDate]);
 
-useEffect(() => {
-  const activeList = favoritesOnly ? favoriteTracks : playlists;
-  if (activeList.length > 0 && currentTrack) {
-    const index = activeList.findIndex(t => t.id === currentTrack.id);
-    setCurrentTrackIndex(index >= 0 ? index : 0);
-  }
-}, [currentTrack, playlists, favoriteTracks, favoritesOnly]);
+  useEffect(() => {
+    const activeList = filteredPlaylists;
+    if (activeList.length > 0 && currentTrack) {
+      const index = activeList.findIndex(t => t.id === currentTrack.id || t.id_musica === currentTrack.id);
+      setCurrentTrackIndex(index >= 0 ? index : 0);
+    }
+  }, [currentTrack, filteredPlaylists]);
 
-    useEffect(() => {
-        async function loadFavorites() {
-            try {
-            const res = await axios.get(`http://170.233.196.50:5202/api/ratings/${userId}`);
-            const liked = res.data.filter(r => r.rating === 1).map(r => r.musica_id);
-            setFavorites(liked);
-            } catch (err) {
-            console.error("Erro ao carregar favoritos:", err);
-            }
-        }
-        loadFavorites();
-    }, [currentTrack]);
+  const handleToggleFavorites = () => {
+    const newState = !favoritesOnly;
+    setFavoritesOnly(newState);
+    if (newState) {
+      fetchFavorites();
+    }
+  };
 
+  return (
+    <div className="app-container">
+      <h1>Music Player</h1>
 
-    const filteredPlaylists = favoritesOnly ? favoriteTracks : playlists;
-
-    return (
-        <div className="app-container">
-            <h1>Player de Rádio Hunter</h1>
-            
-            {!isOnline && (
-                <div className="offline-status">
-                Modo offline - reproduzindo do cache
-                </div>
-            )}
-            
-            <div className="controls">
-                <select 
-                    value={selectedRadio} 
-                    onChange={(e) => setSelectedRadio(e.target.value)}
-                >
-                    <option value="1">Pop</option>
-                    <option value="2">Pop 2K</option>
-                </select>
-                
-                <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                />
-
-                <button onClick={() => {
-                    const newState = !favoritesOnly;
-                    setFavoritesOnly(newState);
-                    if (newState) {
-                        fetchFavorites();
-                    }
-                    }}>
-                    {favoritesOnly ? "Mostrar todas" : "Somente favoritas"}
-                </button>
-
-            </div>
-
-
-            <div className="playlist">
-                <h2>Playlist ({selectedDate})</h2>
-                {filteredPlaylists.length > 0 ? (
-                    <ul>
-                        {filteredPlaylists.map((track, index) => {
-                            const isActive = currentTrack?.id === track.id; // remover
-                            return (
-                                <li 
-                                key={track.id}
-                                ref={isActive ? activeItemRef : null}                              
-                                className={`
-                                    ${!track.audio_url ? 'no-audio' : ''}
-                                `}
-                                onClick={() => {
-                                    setCurrentTrack(track);
-                                    setCurrentTrackIndex(index);
-                                    setIsPlaying(true);
-
-                                    const activeList = favoritesOnly ? favoriteTracks : playlists;
-                                    const startIndex = index;
-                                    cacheTracks(activeList.slice(startIndex, startIndex + 10)); // 🔥 Faz buffer das próximas 10
-                                }}
-                                style={{
-                                    backgroundColor: isActive ? '#e3f2fd' : 'transparent'
-                                }}
-                                >                                
-                                {!favoritesOnly && <span className="time">{track.horario} - </span>}                            
-                                {!track.audio_url && (
-                                    <span>? ? ? </span>
-                                )}
-                                <strong>{track.nome_cantor_musica_hunterfm}</strong>  
-                                {(() => {
-                                    const trackRating = ratings.find(r => r.musica_id === track.id)?.rating;
-                                    if (trackRating === 1) return <FaThumbsUp size={16} color="green" style={{ marginLeft: '8px' }} />;
-                                    if (trackRating === -1) return <FaThumbsDown size={16} color="red" style={{ marginLeft: '8px' }} />;
-                                    return null;
-                                })()}                          
-                                {isActive && <span className="playing-indicator">▶ Tocando agora</span>}
-                                </li>
-                            )
-                        })}
-                        </ul>
-                ) : (
-                    <p>Nenhuma música encontrada para esta data.</p>
-                )}
-            </div>
-
-            {currentTrack && (
-                <PlayerControls 
-                    track={currentTrack}
-                    isPlaying={isPlaying}
-                    onPlayPause={setIsPlaying}
-                    onNext={nextTrack}
-                    onPrev={prevTrack}
-                    shuffleMode={shuffleMode}
-                    toggleShuffle={() => setShuffleMode(!shuffleMode)}
-                />
-            )}
+      {!isOnline && (
+        <div className="offline-status">
+          Modo offline - reproduzindo do cache
         </div>
-    );
+      )}
+
+      <div className="controls">
+        <select value={selectedRadio} onChange={(e) => setSelectedRadio(e.target.value)}>
+          <option value="1">Pop</option>
+          <option value="2">Pop 2K</option>
+        </select>
+
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+        />
+
+        <button onClick={handleToggleFavorites}>
+          {favoritesOnly ? "Mostrar todas" : "Somente favoritas"}
+        </button>
+      </div>
+
+      <div className="playlist">
+        <h2>Playlist ({favoritesOnly ? "Favoritas" : selectedDate})</h2>
+        {filteredPlaylists.length > 0 ? (
+          <ul>
+            {filteredPlaylists.map((track, index) => {
+              const isActive = currentTrack?.id === track.id || currentTrack?.id === track.id_musica;
+              const rating = ratings.find(r => r.id_musica === track.id || r.id_musica === track.id_musica)?.rating;
+
+              return (
+                <li
+                  key={track.id}
+                  ref={isActive ? activeItemRef : null}
+                  onClick={() => {
+                    const updatedTrack = {
+                      ...track,
+                      id_musica: track.id_musica ?? track.id
+                    };
+                    setCurrentTrack(updatedTrack);
+                    setCurrentTrackIndex(index);
+                    setIsPlaying(true);
+                    cacheTracks(filteredPlaylists.slice(index, index + 10));
+                  }}
+                  style={{ backgroundColor: isActive ? '#e3f2fd' : 'transparent' }}
+                >
+                  {!favoritesOnly && <span className="time">{track.horario} - </span>}
+                  <strong>{track.nome_cantor_musica_hunterfm}</strong>
+                  {rating === 1 && <FaThumbsUp size={16} color="green" style={{ marginLeft: 8 }} />}
+                  {rating === -1 && <FaThumbsDown size={16} color="red" style={{ marginLeft: 8 }} />}
+                  {isActive && <span className="playing-indicator">▶ Tocando agora</span>}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p>Nenhuma música encontrada para esta data.</p>
+        )}
+      </div>
+
+      {currentTrack && (
+        <PlayerControls
+          track={currentTrack}
+          isPlaying={isPlaying}
+          onPlayPause={setIsPlaying}
+          onNext={nextTrack}
+          onPrev={prevTrack}
+          shuffleMode={shuffleMode}
+          toggleShuffle={() => setShuffleMode(!shuffleMode)}
+        />
+      )}
+    </div>
+  );
 }
 
 export default App;
