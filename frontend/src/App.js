@@ -111,6 +111,14 @@ function App() {
     setIsPlaying(true);
   };
 
+  // manter estado do login
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
   // Scroll automático para a música atual
   useEffect(() => {
     if (activeItemRef.current) {
@@ -151,6 +159,7 @@ function App() {
           try {
             const res = await axios.post('http://170.233.196.50:5202/api/login', { username, password });
             setUser(res.data);
+            localStorage.setItem('user', JSON.stringify(res.data));
           } catch (err) {
             alert("Erro no login: " + err.response?.data?.error);
           }
@@ -183,6 +192,15 @@ function App() {
   return (
     <div className="app-container">
       <h1>Music Player</h1>
+      <p>Usuário logado: {user.username}</p>
+      <button
+        onClick={() => {
+          setUser(null);
+          localStorage.removeItem('user');
+        }}
+      >
+        Sair
+      </button>
 
       {!isOnline && (
         <div className="offline-status">

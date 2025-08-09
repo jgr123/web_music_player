@@ -80,7 +80,8 @@ app.get('/api/ratings/:user_id', (req, res) => {
 
 app.get('/api/favorites/:user_id', (req, res) => {
   const { user_id } = req.params;
-  console.log("Chegou aqui /api/favorites/:user_id");
+  console.log("Chegou aqui /api/favorites/:user_id");  
+  console.log(req.body);
   db.all(
     `SELECT mu.id_musica as id,
             mu.id_musica, 
@@ -97,21 +98,6 @@ app.get('/api/favorites/:user_id', (req, res) => {
       res.json(rows);
     }
   );
-});
-
-
-// Rota para músicas mais tocadas
-app.get('/api/top-songs', (req, res) => {
-    db.all(`
-        SELECT musica, COUNT(*) as play_count 
-        FROM musica_data_horario 
-        GROUP BY musica 
-        ORDER BY play_count DESC 
-        LIMIT 10
-    `, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
 });
 
 // Criação da tabela de usuários se não existir
@@ -155,6 +141,28 @@ app.get('/api/users', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
+});
+
+// Favoritos de qualquer usuário
+app.get('/api/favorites/user/:target_user_id', (req, res) => {
+  const { target_user_id } = req.params;    
+  console.log("Chegou aqui /api/favorites/user/:target_user_id");  
+  console.log(req.body);
+  db.all(
+    `SELECT mu.id_musica as id,
+            mu.id_musica, 
+            mu.nome_cantor_musica_hunterfm, 
+            r.rating,
+            concat("http://170.233.196.50:3000/music/", mu.arquivo) as audio_url
+     FROM music_ratings r
+     JOIN musica mu ON r.id_musica = mu.id_musica
+     WHERE r.user_id = ? AND r.rating = 1`,
+    [target_user_id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
 });
 
 // Inicia o servidor
