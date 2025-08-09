@@ -177,6 +177,9 @@ function App() {
                 <li
                   key={track.id}
                   ref={isActive ? activeItemRef : null}
+                  className={`
+                      ${track.audio_url.length < 35 ? 'no-audio' : ''}
+                  `}
                   onClick={() => {
                     const updatedTrack = {
                       ...track,

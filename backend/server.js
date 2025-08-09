@@ -48,18 +48,21 @@ app.get('/api/playlists', (req, res) => {
 });
 
 // Adicione estas novas rotas para o sistema de likes
+
 app.post('/api/rate', (req, res) => {
-  const { id_musica, user_id, rating } = req.body;
+  const { user_id, id_musica, rating } = req.body;
   console.log(req.body);
-  db.run(
-    `INSERT OR REPLACE INTO music_ratings (user_id, id_musica, rating) 
-     VALUES (?, ?, ?)`,
-    [user_id, id_musica, rating],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    }
-  );
+  const query = `
+    INSERT INTO music_ratings (user_id, id_musica, rating)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id, id_musica)
+    DO UPDATE SET rating = excluded.rating
+  `;
+
+  db.run(query, [user_id, id_musica, rating], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Rating inserido/atualizado com sucesso' });
+  });
 });
 
 app.get('/api/ratings/:user_id', (req, res) => {
