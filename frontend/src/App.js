@@ -197,7 +197,7 @@ function App() {
         onClick={() => {
           setUser(null);
           localStorage.removeItem('user');
-        }}
+        }}    
       >
         Sair
       </button>
