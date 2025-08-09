@@ -60,27 +60,58 @@ const PlayerControls = ({
     }
   };
 
-  // 🔄 Atualiza o src quando a faixa mudar        
+  // 🔄 Atualiza o src quando a faixa mudar
+  // No useEffect que carrega a música
 useEffect(() => {
-    const loadAndMaybePlay = async () => {
-        if (!track) return;
-        const offlineBlob = await getTrack(track.id);
-        const url = offlineBlob ? URL.createObjectURL(offlineBlob) : track.audio_url;
+  const loadAndMaybePlay = async () => {
+    if (!track?.id) {
+      console.warn("Track inválida - sem ID");
+      return;
+    }
 
-        setAudioSrc(url);
-        console.log(`🎧 Tocando versão offline: ${track.nome_cantor_musica_hunterfm}`);
-
-        // Espera um tempo curto para garantir que o src seja atualizado
-        setTimeout(() => {
-        if (isPlaying && audioRef.current) {
-            audioRef.current.play().catch(err => {
-            console.warn("Erro ao dar autoplay após troca de música:", err);
-            });
+    console.log("Preparando para tocar:", { 
+      id: track.id, 
+      type: typeof track.id,
+      isOffline: track.isOffline
+    });
+ 
+    try {
+      let audioSource;
+      
+      // Verifica se já é uma URL de blob (offline)
+      if (track.audio_url?.startsWith('blob:')) {
+        audioSource = track.audio_url;
+      } 
+      // Tenta carregar do cache
+      else {
+        const cachedData = await getTrack(track.id.toString()); // Garante ID como string
+        
+        if (cachedData?.blob instanceof Blob) {
+          audioSource = URL.createObjectURL(cachedData.blob);
+          console.log(`🎵 Reproduzindo do cache: ${track.nome_cantor_musica_hunterfm}`);
+        } else {
+          // Fallback para URL online
+          audioSource = track.audio_url;
+          console.log("ℹ️ Usando versão online, cache não encontrado");
         }
-        }, 100);
-    };
+      }
 
-    loadAndMaybePlay();
+      setAudioSrc(audioSource);
+
+      // Reprodução automática
+      if (isPlaying && audioRef.current) {
+        setTimeout(() => {
+          audioRef.current.play().catch(e => {
+            console.warn("Autoplay bloqueado:", e);
+          });
+        }, 100);
+      }
+    } catch (err) {
+      console.error("Erro no carregamento:", err);
+      setAudioSrc(track.audio_url); // Fallback final
+    }
+  };
+  loadAndMaybePlay();
 }, [track]);
 
   // ▶️⏸️ Controla play/pause sem alterar o src
@@ -102,6 +133,15 @@ useEffect(() => {
 
     tryPlay();
   }, [isPlaying]);
+
+useEffect(() => {
+  return () => {
+    // Limpa URLs de objeto quando o componente desmonta
+    if (audioSrc && audioSrc.startsWith('blob:')) {
+      URL.revokeObjectURL(audioSrc);
+    }
+  };
+}, [audioSrc]);
 
   // 🔍 Buscar avaliação
   useEffect(() => {
@@ -180,6 +220,13 @@ useEffect(() => {
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
+
+// No PlayerControls.js, antes do return
+console.log('Current audio source:', {
+  src: audioSrc,
+  trackId: track?.id,
+  isBlob: audioSrc?.startsWith('blob:')
+});
 
   return (
     <div className="player-controls">

@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import axios from 'axios';
 import PlayerControls from './components/PlayerControls';
 import './App.css';
-import { cacheTracks } from './utils/offlineCache';
+import { cacheTracks, getCachedTracks } from './utils/offlineCache'; // Importe a função getCachedTracks
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { FaThumbsUp, FaThumbsDown } from 'react-icons/fa';
 
@@ -18,10 +18,43 @@ function App() {
   const [ratings, setRatings] = useState([]);
   const [favoriteTracks, setFavoriteTracks] = useState([]);
   const [user, setUser] = useState(null);
+  const [offlineTracks, setOfflineTracks] = useState([]); // Novo estado para músicas offline
+  const [showOfflineTracks, setShowOfflineTracks] = useState(false); // Estado para controlar a exibição
+
 
   const userId = user?.id;
   const activeItemRef = useRef(null);
   const isOnline = useNetworkStatus();
+
+// Função para carregar músicas offline do cache
+const loadOfflineTracks = async () => {
+  try {
+    const cachedData = await getCachedTracks();
+    const offlineTracksWithUrls = cachedData.map(track => ({
+      ...track,
+      // Marca como offline para o player saber como tratar
+      isOffline: true
+    }));
+    setOfflineTracks(offlineTracksWithUrls);
+  } catch (err) {
+    console.error("Erro ao carregar músicas offline:", err);
+  }
+};
+
+  // Carregar músicas offline quando o componente montar ou quando o usuário mudar
+  useEffect(() => {
+    if (user) {
+      loadOfflineTracks();
+    }
+  }, [user]);
+
+useEffect(() => {
+  const checkCache = async () => {
+    const tracks = await getCachedTracks();
+    console.log("Conteúdo atual do cache:", tracks);
+  };
+  checkCache();
+}, []);
 
   const fetchRatings = async () => {
     try {
@@ -119,6 +152,10 @@ function App() {
     }
   }, []);
 
+useEffect(() => {
+  console.log('Músicas offline:', offlineTracks);
+}, [offlineTracks]);
+
   // Scroll automático para a música atual
   useEffect(() => {
     if (activeItemRef.current) {
@@ -189,7 +226,7 @@ function App() {
   }
 
 
-  return (
+return (
     <div className="app-container">
       <h1>Music Player</h1>
       <p>Usuário logado: {user.username}</p>
@@ -223,46 +260,87 @@ function App() {
         <button onClick={handleToggleFavorites}>
           {favoritesOnly ? "Mostrar todas" : "Somente favoritas"}
         </button>
+
+        {/* Botão para mostrar/ocultar músicas offline */}
+        <button 
+          onClick={() => {
+            setShowOfflineTracks(!showOfflineTracks);
+            if (!showOfflineTracks) {
+              loadOfflineTracks();
+            }
+          }}
+          className={showOfflineTracks ? 'active' : ''}
+        >
+          {showOfflineTracks ? "Mostrar todas" : "Mostrar offline"}
+        </button>
       </div>
 
+      {/* Playlist principal (código existente) */}
       <div className="playlist">
-        <h2>Playlist ({favoritesOnly ? "Favoritas" : selectedDate})</h2>
-        {filteredPlaylists.length > 0 ? (
-          <ul>
-            {filteredPlaylists.map((track, index) => {
-              const isActive = currentTrack?.id === track.id || currentTrack?.id === track.id_musica;
-              const rating = ratings.find(r => r.id_musica === track.id || r.id_musica === track.id_musica)?.rating;
-
-              return (
+        <h2>{showOfflineTracks ? "Músicas Offline" : `Playlist (${favoritesOnly ? "Favoritas" : selectedDate})`}</h2>
+        
+        {showOfflineTracks ? (
+          /* Lista de músicas offline */
+          offlineTracks.length > 0 ? (
+            <ul>
+              {offlineTracks.map((track, index) => (
                 <li
                   key={track.id}
-                  ref={isActive ? activeItemRef : null}
-                  className={`
-                      ${track.audio_url.length < 35 ? 'no-audio' : ''}
-                  `}
+                  // No mapeamento das músicas offline
                   onClick={() => {
-                    const updatedTrack = {
+                    if (!track?.id) {
+                      console.error("Música inválida - sem ID:", track);
+                      return;
+                    }
+
+                    const trackToPlay = {
                       ...track,
-                      id_musica: track.id_musica ?? track.id
+                      id: track.id.toString(), // Garante string
+                      id_musica: track.id_musica || track.id.toString() // Fallback
                     };
-                    setCurrentTrack(updatedTrack);
+
+                    console.log("Reproduzindo track:", trackToPlay); // Debug
+
+                    setCurrentTrack(trackToPlay);
+                    setCurrentTrackIndex(index);
+                    setIsPlaying(true);
+                  }}
+                  style={{ 
+                    backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' 
+                  }}
+                >
+                  <strong>{track.nome_cantor_musica_hunterfm}</strong>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Nenhuma música disponível offline.</p>
+          )
+        ) : (
+          /* Lista normal de músicas (online) */
+          filteredPlaylists.length > 0 ? (
+            <ul>
+              {filteredPlaylists.map((track, index) => (
+                <li
+                  key={track.id}
+                  onClick={() => {
+                    setCurrentTrack(track);
                     setCurrentTrackIndex(index);
                     setIsPlaying(true);
                     cacheTracks(filteredPlaylists.slice(index, index + 10));
                   }}
-                  style={{ backgroundColor: isActive ? '#e3f2fd' : 'transparent' }}
+                  style={{ 
+                    backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' 
+                  }}
                 >
                   {!favoritesOnly && <span className="time">{track.horario} - </span>}
                   <strong>{track.nome_cantor_musica_hunterfm}</strong>
-                  {rating === 1 && <FaThumbsUp size={16} color="green" style={{ marginLeft: 8 }} />}
-                  {rating === -1 && <FaThumbsDown size={16} color="red" style={{ marginLeft: 8 }} />}
-                  {isActive && <span className="playing-indicator">▶ Tocando agora</span>}
                 </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p>Nenhuma música encontrada para esta data.</p>
+              ))}
+            </ul>
+          ) : (
+            <p>Nenhuma música encontrada.</p>
+          )
         )}
       </div>
 
@@ -275,6 +353,7 @@ function App() {
           onPrev={prevTrack}
           shuffleMode={shuffleMode}
           toggleShuffle={() => setShuffleMode(!shuffleMode)}
+          user={user}
         />
       )}
     </div>
