@@ -17,8 +17,9 @@ function App() {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [ratings, setRatings] = useState([]);
   const [favoriteTracks, setFavoriteTracks] = useState([]);
+  const [user, setUser] = useState(null);
 
-  const userId = 1;
+  const userId = user?.id;
   const activeItemRef = useRef(null);
   const isOnline = useNetworkStatus();
 
@@ -137,6 +138,47 @@ function App() {
       fetchFavorites();
     }
   };
+
+
+  if (!user) {
+    return (
+      <div className="login-form">
+        <h2>Login</h2>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const username = e.target.username.value;
+          const password = e.target.password.value;
+          try {
+            const res = await axios.post('http://170.233.196.50:5202/api/login', { username, password });
+            setUser(res.data);
+          } catch (err) {
+            alert("Erro no login: " + err.response?.data?.error);
+          }
+        }}>
+          <input name="username" placeholder="Usuário" required />
+          <input name="password" type="password" placeholder="Senha" required />
+          <button type="submit">Entrar</button>
+        </form>
+        <p>Ou registre-se:</p>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const username = e.target.username.value;
+          const password = e.target.password.value;
+          try {
+            await axios.post('http://170.233.196.50:5202/api/register', { username, password });
+            alert("Usuário criado com sucesso. Faça o login.");
+          } catch (err) {
+            alert("Erro no registro: " + err.response?.data?.error);
+          }
+        }}>
+          <input name="username" placeholder="Novo usuário" required />
+          <input name="password" type="password" placeholder="Senha" required />
+          <button type="submit">Registrar</button>
+        </form>
+      </div>
+    );
+  }
+
 
   return (
     <div className="app-container">

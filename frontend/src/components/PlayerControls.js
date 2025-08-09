@@ -21,7 +21,8 @@ const PlayerControls = ({
   onNext,
   onPrev,
   shuffleMode,
-  toggleShuffle
+  toggleShuffle,
+  user
 }) => {
   const audioRef = useRef(null);
   const [volume, setVolume] = useState(0.7);
@@ -33,7 +34,7 @@ const PlayerControls = ({
   const [audioSrc, setAudioSrc] = useState(track?.audio_url);
   const [rating, setRating] = useState(null);
 
-  const userId = 1;
+  const userId = user?.id;
 // usar teclas de multimidia para passar musicas
   useMediaSession({ track, isPlaying, onPlayPause, onNext, onPrev });
 // fim teclas de multimidia para passar musicas

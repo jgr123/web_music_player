@@ -114,6 +114,49 @@ app.get('/api/top-songs', (req, res) => {
     });
 });
 
+// Criação da tabela de usuários se não existir
+db.run(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL
+  )
+`);
+
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body;
+  db.run(
+    `INSERT INTO users (username, password) VALUES (?, ?)`,
+    [username, password],
+    function (err) {
+      if (err) {
+        return res.status(400).json({ error: 'Usuário já existe.' });
+      }
+      res.json({ id: this.lastID, username });
+    }
+  );
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  db.get(
+    `SELECT * FROM users WHERE username = ? AND password = ?`,
+    [username, password],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) return res.status(401).json({ error: 'Credenciais inválidas' });
+      res.json({ id: row.id, username: row.username });
+    }
+  );
+});
+
+app.get('/api/users', (req, res) => {
+  db.all(`SELECT id, username FROM users`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
 // Inicia o servidor
 app.listen(PORT, () => {
     console.log(`Servidor rodando em http://170.233.196.50:${PORT}`);
