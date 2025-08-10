@@ -22,7 +22,8 @@ const PlayerControls = ({
   onPrev,
   shuffleMode,
   toggleShuffle,
-  user
+  user,
+  showOfflineTracks 
 }) => {
   const audioRef = useRef(null);
   const [volume, setVolume] = useState(0.7);
@@ -62,6 +63,7 @@ const PlayerControls = ({
 
   // 🔄 Atualiza o src quando a faixa mudar
   // No useEffect que carrega a música
+// PlayerControls.txt
 useEffect(() => {
   const loadAndMaybePlay = async () => {
     if (!track?.id) {
@@ -69,30 +71,36 @@ useEffect(() => {
       return;
     }
 
-    console.log("Preparando para tocar:", { 
-      id: track.id, 
+    console.log("Preparando para tocar:", {
+      id: track.id,
       type: typeof track.id,
-      isOffline: track.isOffline
+      isOffline: track.isOffline // O flag isOffline é importante aqui!
     });
- 
+
     try {
       let audioSource;
-      
-      // Verifica se já é uma URL de blob (offline)
-      if (track.audio_url?.startsWith('blob:')) {
-        audioSource = track.audio_url;
-      } 
-      // Tenta carregar do cache
-      else {
-        const cachedData = await getTrack(track.id.toString()); // Garante ID como string
-        
+
+      // Se a música for marcada como offline (do seu cache IndexedDB)
+      if (track.isOffline) {
+        // SEMPRE buscamos o blob do IndexedDB para garantir uma URL válida
+        const cachedData = await getTrack(track.id.toString());
         if (cachedData?.blob instanceof Blob) {
           audioSource = URL.createObjectURL(cachedData.blob);
-          console.log(`🎵 Reproduzindo do cache: ${track.nome_cantor_musica_hunterfm}`);
+          console.log(`�� Reproduzindo do cache: ${track.nome_cantor_musica_hunterfm}`);
         } else {
-          // Fallback para URL online
+          // Fallback caso o blob não seja encontrado no cache (improvável para isOffline)
+          console.warn("Música offline não encontrada no cache, tentando URL online como fallback:", track.audio_url);
           audioSource = track.audio_url;
-          console.log("ℹ️ Usando versão online, cache não encontrado");
+        }
+      } else {
+        // Para músicas online, tentamos o cache primeiro (se estiver lá), depois a URL original
+        const cachedData = await getTrack(track.id.toString());
+        if (cachedData?.blob instanceof Blob) {
+          audioSource = URL.createObjectURL(cachedData.blob);
+          console.log(`�� Reproduzindo do cache (música online cacheadas): ${track.nome_cantor_musica_hunterfm}`);
+        } else {
+          audioSource = track.audio_url; // Usa a URL online original como fallback
+          console.log("ℹ️ Usando versão online, cache não encontrado ou não é música offline");
         }
       }
 
@@ -108,11 +116,30 @@ useEffect(() => {
       }
     } catch (err) {
       console.error("Erro no carregamento:", err);
-      setAudioSrc(track.audio_url); // Fallback final
+      // Garante que o audioSrc seja redefinido para evitar loops de erro em caso de falha grave
+      setAudioSrc(track.audio_url);
     }
   };
   loadAndMaybePlay();
-}, [track]);
+}, [track]); // A dependência continua sendo 'track'
+
+
+// No useEffect que configura os event listeners
+//useEffect(() => {
+//  const audio = audioRef.current;
+//  if (!audio) return;
+
+//  const handleEnded = () => {
+//    if (showOfflineTracks) { // Passar essa prop do App.js
+//      onNext();
+//    } else {
+//      onNext();
+//    }
+//  };
+
+//  audio.addEventListener('ended', handleEnded);
+//  return () => audio.removeEventListener('ended', handleEnded);
+//}, [onNext, showOfflineTracks]);
 
   // ▶️⏸️ Controla play/pause sem alterar o src
   useEffect(() => {
@@ -134,14 +161,6 @@ useEffect(() => {
     tryPlay();
   }, [isPlaying]);
 
-useEffect(() => {
-  return () => {
-    // Limpa URLs de objeto quando o componente desmonta
-    if (audioSrc && audioSrc.startsWith('blob:')) {
-      URL.revokeObjectURL(audioSrc);
-    }
-  };
-}, [audioSrc]);
 
   // 🔍 Buscar avaliação
   useEffect(() => {
@@ -222,11 +241,11 @@ useEffect(() => {
   };
 
 // No PlayerControls.js, antes do return
-console.log('Current audio source:', {
-  src: audioSrc,
-  trackId: track?.id,
-  isBlob: audioSrc?.startsWith('blob:')
-});
+//console.log('Current audio source:', {
+//  src: audioSrc,
+//  trackId: track?.id,
+//  isBlob: audioSrc?.startsWith('blob:')
+//});
 
   return (
     <div className="player-controls">

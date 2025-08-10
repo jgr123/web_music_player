@@ -103,39 +103,44 @@ useEffect(() => {
 
   const filteredPlaylists = favoritesOnly ? favoriteTracks : playlists;
 
-  const nextTrack = () => {
-    const activeList = filteredPlaylists;
-    if (activeList.length === 0) return;
-
+const nextTrack = () => {
+  const activeList = showOfflineTracks ? offlineTracks : filteredPlaylists;
+  if (activeList.length === 0) return;
+console.log("activeList.length=" + activeList.length);
+  let attempts = 0;
+  const tryNext = () => {
     let newIndex;
     if (shuffleMode) {
-      do {
-        newIndex = Math.floor(Math.random() * activeList.length);
-      } while (newIndex === currentTrackIndex && activeList.length > 1);
+      newIndex = Math.floor(Math.random() * activeList.length);
     } else {
       newIndex = (currentTrackIndex + 1) % activeList.length;
     }
-
-    let attempts = 0;
-    while (!activeList[newIndex]?.audio_url && attempts < activeList.length) {
-      newIndex = shuffleMode
-        ? Math.floor(Math.random() * activeList.length)
-        : (newIndex + 1) % activeList.length;
-      attempts++;
-    }
-
-    if (activeList[newIndex]?.audio_url) {
+    console.log("currentTrackIndex=" + currentTrackIndex);
+    console.log("newIndex=" + newIndex);
+    console.log("CurrentTrack=" + currentTrack);
+    
+    const nextTrack = activeList[newIndex];
+    console.log("nextTrack=" + nextTrack);
+    console.log("==========================");
+    
+    if (nextTrack && (nextTrack.audio_url || nextTrack.blobData)) {
       setCurrentTrackIndex(newIndex);
-      setCurrentTrack(activeList[newIndex]);
+      setCurrentTrack(nextTrack);
       setIsPlaying(true);
-      cacheTracks(activeList.slice(newIndex, newIndex + 10));
+    } else if (attempts < activeList.length) {
+      attempts++;
+      setTimeout(tryNext, 100);
     } else {
       setIsPlaying(false);
     }
   };
 
+  tryNext();
+};
+
   const prevTrack = () => {
-    const activeList = filteredPlaylists;
+  //  const activeList = filteredPlaylists;
+    const activeList = showOfflineTracks ? offlineTracks : filteredPlaylists; // <-- NOVA LINHA
     if (activeList.length === 0) return;
 
     const newIndex = (currentTrackIndex - 1 + activeList.length) % activeList.length;
@@ -168,13 +173,36 @@ useEffect(() => {
     fetchRatings();
   }, [selectedRadio, selectedDate]);
 
+  // App.txt (NOVO BLOCO - Sincronização correta do índice da música)
   useEffect(() => {
-    const activeList = filteredPlaylists;
-    if (activeList.length > 0 && currentTrack) {
-      const index = activeList.findIndex(t => t.id === currentTrack.id || t.id_musica === currentTrack.id);
-      setCurrentTrackIndex(index >= 0 ? index : 0);
+    // A lista a ser pesquisada deve depender do modo atual (online/favoritas ou offline)
+    const listToSearch = showOfflineTracks ? offlineTracks : filteredPlaylists;
+
+    if (listToSearch.length > 0 && currentTrack) {
+      const index = listToSearch.findIndex(t => t.id === currentTrack.id || t.id_musica === currentTrack.id);
+
+      // Se a música atual for encontrada na lista correta, atualize o índice
+      if (index >= 0) {
+        // Apenas atualize se o índice for diferente para evitar re-renderizações desnecessárias
+        if (currentTrackIndex !== index) {
+          setCurrentTrackIndex(index);
+          console.log(`Debug: currentTrackIndex atualizado para ${index} na lista ativa.`);
+        }
+      } else {
+        // Se a música atual NÃO for encontrada na lista (ex: trocou de online para offline e a música não existe na lista offline),
+        // ou se o ID não corresponde, podemos querer resetar o índice para 0 e ir para a primeira música da nova lista.
+        console.warn("Debug: Música atual não encontrada na lista ativa. Resetando para a primeira música da lista.");
+        setCurrentTrackIndex(0);
+        setCurrentTrack(listToSearch[0] || null); // Definir para a primeira música da lista, ou null se vazia
+      }
+    } else if (listToSearch.length > 0 && !currentTrack) {
+        // Cenário: A lista tem músicas, mas currentTrack ainda não foi definido (ex: primeira carga da lista offline)
+        // Define a primeira música da lista como a atual.
+        console.log("Debug: Lista ativa populada, mas currentTrack não definido. Configurando a primeira música.");
+        setCurrentTrackIndex(0);
+        setCurrentTrack(listToSearch[0]);
     }
-  }, [currentTrack, filteredPlaylists]);
+  }, [currentTrack, filteredPlaylists, offlineTracks, showOfflineTracks]); // IMPORTANTE: Adicione todas as dependências relevantes aqui!
 
   const handleToggleFavorites = () => {
     const newState = !favoritesOnly;
@@ -349,6 +377,7 @@ return (
           track={currentTrack}
           isPlaying={isPlaying}
           onPlayPause={setIsPlaying}
+          showOfflineTracks={showOfflineTracks}
           onNext={nextTrack}
           onPrev={prevTrack}
           shuffleMode={shuffleMode}
