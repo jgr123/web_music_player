@@ -106,7 +106,6 @@ useEffect(() => {
 const nextTrack = () => {
   const activeList = showOfflineTracks ? offlineTracks : filteredPlaylists;
   if (activeList.length === 0) return;
-console.log("activeList.length=" + activeList.length);
   let attempts = 0;
   const tryNext = () => {
     let newIndex;
@@ -115,13 +114,8 @@ console.log("activeList.length=" + activeList.length);
     } else {
       newIndex = (currentTrackIndex + 1) % activeList.length;
     }
-    console.log("currentTrackIndex=" + currentTrackIndex);
-    console.log("newIndex=" + newIndex);
-    console.log("CurrentTrack=" + currentTrack);
     
     const nextTrack = activeList[newIndex];
-    console.log("nextTrack=" + nextTrack);
-    console.log("==========================");
     
     if (nextTrack && (nextTrack.audio_url || nextTrack.blobData)) {
       setCurrentTrackIndex(newIndex);

@@ -26,14 +26,23 @@ const PlayerControls = ({
   showOfflineTracks 
 }) => {
   const audioRef = useRef(null);
-  const [volume, setVolume] = useState(0.7);
-  const [lastVolume, setLastVolume] = useState(0.7);
-  const [isMuted, setIsMuted] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioSrc, setAudioSrc] = useState(track?.audio_url);
   const [rating, setRating] = useState(null);
+ // Carrega o volume do localStorage na inicialização
+  const [volume, setVolume] = useState(() => {
+    try {
+      const savedVolume = localStorage.getItem('playerVolume'); // Usar uma chave específica para o volume
+      return savedVolume !== null ? parseFloat(savedVolume) : 0.7; // Converte para número, usa 0.7 se não houver
+    } catch (error) {
+      console.error("Erro ao carregar volume do localStorage:", error);
+      return 0.7; // Retorna o padrão em caso de erro
+    }
+  });
+  const [lastVolume, setLastVolume] = useState(volume > 0 ? volume : 0.7); // Ajusta lastVolume baseado no volume inicial
+  const [isMuted, setIsMuted] = useState(volume === 0); // Define isMuted se o volume inicial for 0
 
   const userId = user?.id;
 // usar teclas de multimidia para passar musicas
@@ -123,23 +132,20 @@ useEffect(() => {
   loadAndMaybePlay();
 }, [track]); // A dependência continua sendo 'track'
 
-
-// No useEffect que configura os event listeners
-//useEffect(() => {
-//  const audio = audioRef.current;
-//  if (!audio) return;
-
-//  const handleEnded = () => {
-//    if (showOfflineTracks) { // Passar essa prop do App.js
-//      onNext();
-//    } else {
-//      onNext();
-//    }
-//  };
-
-//  audio.addEventListener('ended', handleEnded);
-//  return () => audio.removeEventListener('ended', handleEnded);
-//}, [onNext, showOfflineTracks]);
+ // Salva o volume no localStorage sempre que ele muda
+  useEffect(() => {
+    try {
+      localStorage.setItem('playerVolume', volume.toString());
+      // Além disso, se o volume for 0, podemos considerar que está mudo
+      // e se o volume voltar a ser maior que 0, não está mudo
+      setIsMuted(volume === 0); // Sincroniza isMuted com o volume real
+      if (volume > 0) {
+        setLastVolume(volume); // Atualiza lastVolume apenas se o volume não for zero
+      }
+    } catch (error) {
+      console.error("Erro ao salvar volume no localStorage:", error);
+    }
+  }, [volume]); // Este useEffect será executado sempre que 'volume' for alterado
 
   // ▶️⏸️ Controla play/pause sem alterar o src
   useEffect(() => {
