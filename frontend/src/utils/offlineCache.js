@@ -5,7 +5,8 @@ const STORE_NAME = 'musicas';
 export async function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 2); // Versão incrementada
-    
+//    req.deleteDatabase(DB_NAME);
+
     req.onupgradeneeded = (event) => {
       const db = event.target.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -21,6 +22,10 @@ export async function openDB() {
 }
 
 export async function saveTrack(id, blob, metadata = {}) {
+  if (!(blob instanceof Blob)) {
+    console.error('Tentativa de salvar blob inválido:', blob);
+    return false;
+  }
   const db = await openDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
   
@@ -82,7 +87,11 @@ export async function cacheTracks(tracks) {
       const exists = await getTrack(trackId);
       if (!exists) {
         const res = await fetch(track.audio_url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
+        if (!(blob instanceof Blob)) {
+          throw new Error('Resposta não é um Blob válido');
+        }
         await saveTrack(trackId, blob, {
           nome_cantor_musica_hunterfm: track.nome_cantor_musica_hunterfm,
           originalUrl: track.audio_url
