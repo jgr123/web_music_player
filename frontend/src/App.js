@@ -345,6 +345,9 @@ return (
               {filteredPlaylists.map((track, index) => (
                 <li
                   key={track.id}
+                  className={`
+                      ${track.audio_url.length < 35 ? 'no-audio' : ''}
+                  `}
                   onClick={() => {
                     setCurrentTrack(track);
                     setCurrentTrackIndex(index);
