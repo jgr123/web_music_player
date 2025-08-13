@@ -20,6 +20,11 @@ function App() {
   const [user, setUser] = useState(null);
   const [offlineTracks, setOfflineTracks] = useState([]); // Novo estado para músicas offline
   const [showOfflineTracks, setShowOfflineTracks] = useState(false); // Estado para controlar a exibição
+  // NOVOS ESTADOS PARA PLAYLISTS CUSTOMIZADAS
+  const [customPlaylists, setCustomPlaylists] = useState([]);
+  const [selectedCustomPlaylistId, setSelectedCustomPlaylistId] = useState(null);
+  const [showCustomPlaylistSongs, setShowCustomPlaylistSongs] = useState(false); // Flag para mostrar músicas da playlist customizada
+  const [customPlaylistSongs, setCustomPlaylistSongs] = useState([]); // Músicas da playlist customizada selecionada
 
 
   const userId = user?.id;
@@ -103,8 +108,23 @@ useEffect(() => {
 
   const filteredPlaylists = favoritesOnly ? favoriteTracks : playlists;
 
+
+  // App.txt - NOVO: Função para determinar a lista de reprodução ativa
+const getCurrentActiveList = () => {
+  if (showOfflineTracks) {
+    return offlineTracks;
+  }
+  if (favoritesOnly) {
+    return favoriteTracks;
+  }
+  if (showCustomPlaylistSongs) {
+    return customPlaylistSongs;
+  }
+  return playlists; // Retorna a playlist diária (original) como padrão
+};
+
 const nextTrack = () => {
-  const activeList = showOfflineTracks ? offlineTracks : filteredPlaylists;
+  const activeList = getCurrentActiveList(); // Usa a nova função
   if (activeList.length === 0) return;
   let attempts = 0;
   const tryNext = () => {
@@ -114,34 +134,81 @@ const nextTrack = () => {
     } else {
       newIndex = (currentTrackIndex + 1) % activeList.length;
     }
-    
-    const nextTrack = activeList[newIndex];
-    
-    if (nextTrack && (nextTrack.audio_url || nextTrack.blobData)) {
+
+    const nextTrackCandidate = activeList[newIndex];
+
+    // Verifica se a música é válida (tem URL de áudio ou dados de blob para offline)
+    if (nextTrackCandidate && (nextTrackCandidate.audio_url || nextTrackCandidate.isOffline)) {
       setCurrentTrackIndex(newIndex);
-      setCurrentTrack(nextTrack);
+      setCurrentTrack(nextTrackCandidate);
       setIsPlaying(true);
     } else if (attempts < activeList.length) {
       attempts++;
-      setTimeout(tryNext, 100);
+      // Se a música não for válida, tenta a próxima para evitar loops infinitos com faixas inválidas
+      tryNext();
     } else {
+      // Se todas as músicas da lista foram tentadas e nenhuma é válida
       setIsPlaying(false);
+      setCurrentTrack(null);
     }
   };
-
   tryNext();
 };
 
-  const prevTrack = () => {
-  //  const activeList = filteredPlaylists;
-    const activeList = showOfflineTracks ? offlineTracks : filteredPlaylists; // <-- NOVA LINHA
-    if (activeList.length === 0) return;
+const prevTrack = () => {
+  const activeList = getCurrentActiveList(); // Usa a nova função
+  if (activeList.length === 0) return;
 
-    const newIndex = (currentTrackIndex - 1 + activeList.length) % activeList.length;
-    setCurrentTrackIndex(newIndex);
-    setCurrentTrack(activeList[newIndex]);
-    setIsPlaying(true);
+  const newIndex = (currentTrackIndex - 1 + activeList.length) % activeList.length;
+  setCurrentTrackIndex(newIndex);
+  setCurrentTrack(activeList[newIndex]);
+  setIsPlaying(true);
+};
+
+// App.txt - NOVO useEffect para carregar playlists customizadas
+useEffect(() => {
+  const fetchCustomPlaylists = async () => {
+    try {
+      const res = await axios.get('http://170.233.196.50:5202/api/custom-playlists');
+      setCustomPlaylists(res.data);
+      // Opcional: seleciona automaticamente a primeira playlist customizada se houver alguma
+      if (res.data.length > 0 && !selectedCustomPlaylistId) {
+        setSelectedCustomPlaylistId(res.data[0].id);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar playlists customizadas:", err);
+    }
   };
+  fetchCustomPlaylists();
+}, []); // Roda uma vez na montagem do componente
+
+// App.txt - NOVO useEffect para carregar as músicas da playlist customizada selecionada
+useEffect(() => {
+  const fetchCustomPlaylistSongs = async () => {
+    if (selectedCustomPlaylistId && showCustomPlaylistSongs) {
+      try {
+        const res = await axios.get(`http://170.233.196.50:5202/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
+        const data = res.data.map(t => ({
+          ...t,
+          id_musica: t.id_musica ?? t.id // Garante que 'id_musica' esteja sempre presente para o player
+        }));
+        setCustomPlaylistSongs(data);
+        if (data.length > 0 && !currentTrack) {
+          setCurrentTrack(data[0]);
+          cacheTracks(data.slice(0, 10)); // Cacheia as primeiras músicas da playlist
+        }
+      } catch (err) {
+        console.error("Erro ao carregar músicas da playlist customizada:", err);
+      }
+    } else if (!showCustomPlaylistSongs) {
+      setCustomPlaylistSongs([]); // Limpa a lista se não estiver mostrando playlists customizadas
+    }
+  };
+  fetchCustomPlaylistSongs();
+}, [selectedCustomPlaylistId, showCustomPlaylistSongs]); // Depende da playlist selecionada e da flag de exibição
+
+
+
 
   // manter estado do login
   useEffect(() => {
@@ -170,10 +237,13 @@ useEffect(() => {
   // App.txt (NOVO BLOCO - Sincronização correta do índice da música)
   useEffect(() => {
     // A lista a ser pesquisada deve depender do modo atual (online/favoritas ou offline)
-    const listToSearch = showOfflineTracks ? offlineTracks : filteredPlaylists;
+    const listToSearch = getCurrentActiveList(); // Use a função auxiliar
 
-    if (listToSearch.length > 0 && currentTrack) {
-      const index = listToSearch.findIndex(t => t.id === currentTrack.id || t.id_musica === currentTrack.id);
+    if (listToSearch.length > 0 && currentTrack) {  // Encontra a música atual na lista ativa, usando id ou id_musica
+    const index = listToSearch.findIndex(t =>
+      (t.id && currentTrack.id && t.id.toString() === currentTrack.id.toString()) ||
+      (t.id_musica && currentTrack.id_musica && t.id_musica.toString() === currentTrack.id_musica.toString())
+    );
 
       // Se a música atual for encontrada na lista correta, atualize o índice
       if (index >= 0) {
@@ -196,7 +266,8 @@ useEffect(() => {
         setCurrentTrackIndex(0);
         setCurrentTrack(listToSearch[0]);
     }
-  }, [currentTrack, filteredPlaylists, offlineTracks, showOfflineTracks]); // IMPORTANTE: Adicione todas as dependências relevantes aqui!
+  }, [currentTrack, playlists, favoriteTracks, offlineTracks, customPlaylistSongs, showOfflineTracks, favoritesOnly, showCustomPlaylistSongs]);
+// Adicione todas as novas dependências
 
   const handleToggleFavorites = () => {
     const newState = !favoritesOnly;
@@ -295,41 +366,82 @@ return (
         >
           {showOfflineTracks ? "Mostrar todas" : "Mostrar offline"}
         </button>
+      {/* NOVOS CONTROLES PARA PLAYLISTS CUSTOMIZADAS */}
+        {customPlaylists.length > 0 && (
+          <>
+            <select
+              value={selectedCustomPlaylistId || ''}
+              onChange={(e) => {
+                setSelectedCustomPlaylistId(e.target.value);
+                // Quando seleciona uma custom playlist, ativa sua visualização e desativa outros modos
+                setShowCustomPlaylistSongs(true);
+                setFavoritesOnly(false);
+                setShowOfflineTracks(false);
+              }}
+              // Desativa se não há playlists customizadas para selecionar
+              disabled={customPlaylists.length === 0}
+            >
+              <option value="">Selecione uma Playlist Customizada</option>
+              {customPlaylists.map(playlist => (
+                <option key={playlist.id} value={playlist.id}>
+                  {playlist.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                setShowCustomPlaylistSongs(!showCustomPlaylistSongs);
+                // Se alterna a visualização da playlist customizada, desativa outros modos
+                if (!showCustomPlaylistSongs) {
+                  setFavoritesOnly(false);
+                  setShowOfflineTracks(false);
+                  // Se não houver playlist selecionada, mas há playlists customizadas, seleciona a primeira
+                  if (selectedCustomPlaylistId === null && customPlaylists.length > 0) {
+                    setSelectedCustomPlaylistId(customPlaylists[0].id);
+                  }
+                }
+              }}
+              className={showCustomPlaylistSongs ? 'active' : ''}
+              disabled={customPlaylists.length === 0} // Desativa se não há playlists customizadas
+            >
+              {showCustomPlaylistSongs ? "Ocultar Playlists Customizadas" : "Mostrar Playlists Customizadas"}
+            </button>
+          </>
+        )}
+
       </div>
 
-      {/* Playlist principal (código existente) */}
+      {/* App.txt - Dentro da div "playlist" */}
       <div className="playlist">
-        <h2>{showOfflineTracks ? "Músicas Offline" : `Playlist (${favoritesOnly ? "Favoritas" : selectedDate})`}</h2>
-        
+        <h2>
+          {showOfflineTracks
+            ? "Músicas Offline"
+            : favoritesOnly
+            ? "Favoritas"
+            : showCustomPlaylistSongs // NOVA CONDIÇÃO
+            ? `Playlist: ${customPlaylists.find(p => p.id == selectedCustomPlaylistId)?.name || 'Carregando...'}`
+            : `Playlist (${selectedDate})` // Padrão: playlist diária do rádio
+          }
+        </h2>
+
         {showOfflineTracks ? (
-          /* Lista de músicas offline */
+          /* ... Lista de músicas offline (código existente) ... */
           offlineTracks.length > 0 ? (
             <ul>
               {offlineTracks.map((track, index) => (
                 <li
                   key={track.id}
-                  // No mapeamento das músicas offline
                   onClick={() => {
-                    if (!track?.id) {
-                      console.error("Música inválida - sem ID:", track);
-                      return;
-                    }
-
                     const trackToPlay = {
                       ...track,
                       id: track.id.toString(), // Garante string
                       id_musica: track.id_musica || track.id.toString() // Fallback
                     };
-
-                    console.log("Reproduzindo track:", trackToPlay); // Debug
-
                     setCurrentTrack(trackToPlay);
                     setCurrentTrackIndex(index);
                     setIsPlaying(true);
                   }}
-                  style={{ 
-                    backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' 
-                  }}
+                  style={{ backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' }}
                 >
                   <strong>{track.nome_cantor_musica_hunterfm}</strong>
                 </li>
@@ -338,33 +450,84 @@ return (
           ) : (
             <p>Nenhuma música disponível offline.</p>
           )
-        ) : (
-          /* Lista normal de músicas (online) */
-          filteredPlaylists.length > 0 ? (
+        ) : favoritesOnly ? ( // CONDIÇÃO PARA FAVORITAS (poderia ser o original filteredPlaylists, mas explícito é mais claro)
+          favoriteTracks.length > 0 ? (
             <ul>
-              {filteredPlaylists.map((track, index) => (
+              {favoriteTracks.map((track, index) => (
                 <li
                   key={track.id}
-                  className={`
-                      ${track.audio_url.length < 35 ? 'no-audio' : ''}
-                  `}
                   onClick={() => {
                     setCurrentTrack(track);
                     setCurrentTrackIndex(index);
                     setIsPlaying(true);
-                    cacheTracks(filteredPlaylists.slice(index, index + 10));
+                    if (!track.isOffline) { // Se não for uma música offline já, cacheie
+                      // Como favoritesOnly é uma lista filtrada, talvez você queira cachear do original playlists
+                      // Ou, apenas ignore o cache aqui, já que são favoritas.
+                      // Para o exemplo, vamos supor que você não quer cachear favoritas automaticamente, a menos que venham da playlist principal.
+                      // Ou, você pode cachear as favoritas também, o que é uma boa ideia.
+                      // cacheTracks(favoriteTracks.slice(index, index + 10));
+                    }
                   }}
-                  style={{ 
-                    backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' 
-                  }}
+                  style={{ backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' }}
                 >
-                  {!favoritesOnly && <span className="time">{track.horario} - </span>}
                   <strong>{track.nome_cantor_musica_hunterfm}</strong>
                 </li>
               ))}
             </ul>
           ) : (
-            <p>Nenhuma música encontrada.</p>
+            <p>Nenhuma música favorita encontrada.</p>
+          )
+        ) : showCustomPlaylistSongs ? ( // NOVA CONDIÇÃO PARA PLAYLISTS CUSTOMIZADAS
+          customPlaylistSongs.length > 0 ? (
+            <ul>
+              {customPlaylistSongs.map((track, index) => (
+                <li
+                  key={track.id}
+                  onClick={() => {
+                    setCurrentTrack(track);
+                    setCurrentTrackIndex(index);
+                    setIsPlaying(true);
+                    // Cacheia as músicas da playlist customizada, se não forem já offline
+                    if (!track.isOffline) {
+                      cacheTracks(customPlaylistSongs.slice(index, index + 10));
+                    }
+                  }}
+                  style={{ backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' }}
+                >
+                  <strong>{track.nome_cantor_musica_hunterfm}</strong>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Nenhuma música encontrada nesta playlist customizada.</p>
+          )
+        ) : (
+          /* Lista normal de músicas (online do rádio diário) */
+          /* Note: 'filteredPlaylists' no seu código original era (favoritesOnly ? favoriteTracks : playlists). */
+          /* Agora, como favoritesOnly tem sua própria condição, esta seção é apenas para 'playlists' (rádio diário). */
+          playlists.length > 0 ? (
+            <ul>
+              {playlists.map((track, index) => (
+                <li
+                  key={track.id}
+                  className={`${track.audio_url.length < 35 ? 'no-audio' : ''}`}
+                  onClick={() => {
+                    setCurrentTrack(track);
+                    setCurrentTrackIndex(index);
+                    setIsPlaying(true);
+                    if (!track.isOffline) { // Se não for uma música offline já, cacheie
+                      cacheTracks(playlists.slice(index, index + 10));
+                    }
+                  }}
+                  style={{ backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' }}
+                >
+                  <span className="time">{track.horario} - </span>
+                  <strong>{track.nome_cantor_musica_hunterfm}</strong>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Nenhuma música encontrada para a data/rádio selecionada.</p>
           )
         )}
       </div>

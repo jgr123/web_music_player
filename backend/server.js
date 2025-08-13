@@ -165,6 +165,132 @@ app.get('/api/favorites/user/:target_user_id', (req, res) => {
   );
 });
 
+
+
+// server.txt - Rota para criar uma nova playlist customizada
+app.post('/api/custom-playlists', (req, res) => {
+  const { name, description, created_by } = req.body;
+  if (!name || !created_by) {
+    return res.status(400).json({ error: 'Nome da playlist e ID do criador são obrigatórios.' });
+  }
+  db.run(
+    `INSERT INTO custom_playlists (name, description, created_by) VALUES (?, ?, ?)`,
+    [name, description, created_by],
+    function (err) {
+      if (err) {
+        console.error("Erro ao criar playlist:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: this.lastID, name, description, created_by });
+    }
+  );
+});
+
+// server.txt - Rota para adicionar músicas a uma playlist customizada
+app.post('/api/custom-playlists/:playlist_id/add-songs', (req, res) => {
+  const { playlist_id } = req.params;
+  const { musica_ids } = req.body; // Espera um array de IDs de músicas
+
+  if (!musica_ids || !Array.isArray(musica_ids) || musica_ids.length === 0) {
+    return res.status(400).json({ error: 'Lista de IDs de música vazia ou inválida.' });
+  }
+
+  db.serialize(() => { // Usamos serialize para garantir que as operações ocorram em sequência (quase como uma transação)
+    db.run("BEGIN TRANSACTION;");
+    let successCount = 0;
+    let errorCount = 0;
+    let currentOrder = 0; // Inicia a ordem
+
+    // Busca a maior ordem existente na playlist para continuar a numeração
+    db.get(`SELECT MAX(order_in_playlist) as max_order FROM custom_playlist_songs WHERE playlist_id = ?`, [playlist_id], (err, row) => {
+      if (row && row.max_order !== null) {
+        currentOrder = row.max_order + 1;
+      }
+
+      const stmt = db.prepare(`INSERT OR IGNORE INTO custom_playlist_songs (playlist_id, musica_id, order_in_playlist) VALUES (?, ?, ?)`);
+      musica_ids.forEach(musica_id => {
+        stmt.run(playlist_id, musica_id, currentOrder++, function(err) {
+          if (err) {
+            console.error(`Erro ao adicionar música ${musica_id} à playlist ${playlist_id}:`, err);
+            errorCount++;
+          } else if (this.changes > 0) { // Se uma linha foi realmente inserida (não era duplicata)
+            successCount++;
+          }
+        });
+      });
+      stmt.finalize(() => { // Finaliza o statement depois de todas as inserções
+        db.run("COMMIT;", (err) => { // Comita a transação
+          if (err) {
+            console.error("Erro ao comitar transação:", err);
+            return res.status(500).json({ error: err.message });
+          }
+          res.json({ message: `Adicionadas ${successCount} músicas à playlist. ${errorCount} erros/duplicatas (músicas já existentes na playlist).` });
+        });
+      });
+    });
+  });
+});
+
+// server.txt - Rota para buscar todas as playlists customizadas
+app.get('/api/custom-playlists', (req, res) => {
+  db.all(`SELECT id, name, description FROM custom_playlists`, (err, rows) => {
+    if (err) {
+      console.error("Erro ao buscar playlists customizadas:", err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(rows);
+  });
+});
+
+// server.txt - Rota para buscar as músicas de uma playlist customizada específica
+app.get('/api/custom-playlists/:playlist_id/songs', (req, res) => {
+  const { playlist_id } = req.params;
+  db.all(
+    `SELECT m.id_musica as id,
+            m.id_musica,
+            m.nome_cantor_musica_hunterfm,
+            concat("http://170.233.196.50:3000/music/", m.arquivo) as audio_url
+     FROM custom_playlist_songs cps
+     JOIN musica m ON cps.musica_id = m.id_musica
+     WHERE cps.playlist_id = ?
+     ORDER BY cps.order_in_playlist`,
+    [playlist_id],
+    (err, rows) => {
+      if (err) {
+        console.error("Erro ao buscar músicas da playlist customizada:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+
+
+// server.txt - Criação da tabela de playlists customizadas
+db.run(`
+  CREATE TABLE IF NOT EXISTS custom_playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+  )
+`);
+
+// server.txt - Criação da tabela de junção playlist-músicas
+db.run(`
+  CREATE TABLE IF NOT EXISTS custom_playlist_songs (
+    playlist_id INTEGER,
+    musica_id INTEGER,
+    order_in_playlist INTEGER,
+    PRIMARY KEY (playlist_id, musica_id), -- Garante que uma música não seja adicionada duas vezes na mesma playlist
+    FOREIGN KEY (playlist_id) REFERENCES custom_playlists(id),
+    FOREIGN KEY (musica_id) REFERENCES musica(id_musica)
+  )
+`);
+
 // Inicia o servidor
 app.listen(PORT, () => {
     console.log(`Servidor rodando em http://170.233.196.50:${PORT}`);
