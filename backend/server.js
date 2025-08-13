@@ -331,7 +331,18 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
   const m3u8FilePath = req.file.path; // Caminho temporário do arquivo uploaded
   const playlistFileName = req.file.originalname; // Ex: "Minha Playlist.m3u8"
   // O nome da playlist é o nome do arquivo sem a extensão .m3u8
-  const playlistName = playlistFileName.replace(/\.m3u8$/i, '');
+  let playlistName = playlistFileName.replace(/\.m3u8$/i, '');
+
+  // --- ADICIONE ESTA LINHA PARA REMOVER OS 3 PRIMEIROS CARACTERES ---
+  if (playlistName.length > 3) { // Verifica se a string tem pelo menos 3 caracteres
+    playlistName = playlistName.substring(3); // Agora: "Minha Playlist"
+  } else {
+    // Caso o nome seja muito curto, pode definir como vazio ou manter como está,
+    // dependendo de como você quer tratar nomes como "01-" ou "01"
+    playlistName = ''; // Ou alguma lógica de tratamento de erro/padrão
+    console.warn(`Nome da playlist '${playlistFileName}' é muito curto para remover os 3 primeiros caracteres.`);
+  }
+  // --- FIM DA ALTERAÇÃO ---
 
   let userId = req.body.userId; // Espera que o ID do usuário seja enviado no corpo da requisição
 

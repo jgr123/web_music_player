@@ -437,28 +437,6 @@ return (
 
       <div className="controls">
 {/* --- NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
-        <div className="m3u8-upload-section" style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
-          <h3>Importar Playlist (.m3u8)</h3>
-          <input
-            type="file"
-            accept=".m3u8"
-            onChange={(e) => setSelectedM3u8File(e.target.files[0])}
-            ref={fileInputRef} // Anexa a referência para limpar o input
-            style={{ marginBottom: '10px', display: 'block' }}
-          />
-          <button
-            onClick={handleM3u8Upload}
-            disabled={!user?.id || !selectedM3u8File} // Desabilita se não estiver logado ou nenhum arquivo selecionado
-            style={{ padding: '8px 15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Carregar Playlist
-          </button>
-          {!user?.id && <p style={{ color: 'red', fontSize: '0.9em' }}>Faça login para importar playlists.</p>}
-        </div>
-        {/* --- FIM DO NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
-
-
-
         <select value={selectedRadio} onChange={(e) => setSelectedRadio(e.target.value)}>
           <option value="1">Pop</option>
           <option value="2">Pop 2K</option>
@@ -528,7 +506,25 @@ return (
             </button>
           </>
         )}
-
+        <div className="m3u8-upload-section" style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
+          <h3>Importar Playlist (.m3u8)</h3>
+          <input
+            type="file"
+            accept=".m3u8"
+            onChange={(e) => setSelectedM3u8File(e.target.files[0])}
+            ref={fileInputRef} // Anexa a referência para limpar o input
+            style={{ marginBottom: '10px', display: 'block' }}
+          />
+          <button
+            onClick={handleM3u8Upload}
+            disabled={!user?.id || !selectedM3u8File} // Desabilita se não estiver logado ou nenhum arquivo selecionado
+            style={{ padding: '8px 15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
+          >
+            Carregar Playlist
+          </button>
+          {!user?.id && <p style={{ color: 'red', fontSize: '0.9em' }}>Faça login para importar playlists.</p>}
+        </div>
+        {/* --- FIM DO NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
       </div>
 
       {/* App.txt - Dentro da div "playlist" */}
