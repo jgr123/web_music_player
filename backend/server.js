@@ -30,7 +30,6 @@ const MUSIC_SEARCH_BASE_DIR = 'D:/deezer-downloader/playlists';
  */
 async function findAndCopyMusicFile(fileName) {
   const targetPath = path.join(MUSIC_DEST_DIR, fileName);
-  console.log("---- Destino= " + targetPath);
   // 1. Verifica se o arquivo já existe no diretório de destino
   if (await fs.pathExists(targetPath)) {
     console.log(`🎵 Arquivo '${fileName}' já existe em '${MUSIC_DEST_DIR}'.`);
@@ -40,8 +39,13 @@ async function findAndCopyMusicFile(fileName) {
   // 2. Se não existe no destino, procura recursivamente no diretório de busca
   console.log(`🔍 Procurando '${fileName}' em '${MUSIC_SEARCH_BASE_DIR}'...`);
   try {
+    // CORREÇÃO FINAL: Usar micromatch.escape para escapar caracteres especiais
+    // Esta é a função correta para escapar strings literais para uso em padrões glob.
+    const escapedFileName = glob.escapePath(fileName); // <--- AQUI ESTÁ A CORREÇÃO FINAL!
+    const pattern = `**/${escapedFileName}`; // Usa o nome do arquivo escapado no padrão de busca
+
     // Usa fast-glob para buscar o arquivo recursivamente
-    const entries = await glob(`**/${fileName}`, { cwd: MUSIC_SEARCH_BASE_DIR, unique: true });
+    const entries = await glob(pattern, { cwd: MUSIC_SEARCH_BASE_DIR, unique: true });
 
     if (entries.length > 0) {
       const sourcePath = path.join(MUSIC_SEARCH_BASE_DIR, entries[0]); // Pega o primeiro resultado
@@ -50,7 +54,7 @@ async function findAndCopyMusicFile(fileName) {
       console.log(`👍 Arquivo '${fileName}' copiado com sucesso!`);
       return true;
     } else {
-      console.warn(`⚠️ Arquivo '${fileName}' NÃO encontrado em '${MUSIC_SEARCH_BASE_DIR}' ou subdiretórios.`);
+      console.warn(`⚠️ ---------------- Arquivo '${fileName}' NÃO encontrado em '${MUSIC_SEARCH_BASE_DIR}' ou subdiretórios.`);
       return false;
     }
   } catch (searchOrCopyErr) {
@@ -331,6 +335,12 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
 
   let userId = req.body.userId; // Espera que o ID do usuário seja enviado no corpo da requisição
 
+  // --- Novos contadores para a resposta ---
+  let totalFilesHandled = 0; // Quantidade de arquivos .mp3 que foram copiados ou já existiam no destino
+  let totalSongsInsertedDB = 0; // Quantidade de novas músicas inseridas na tabela `musica`
+  let totalCantorsInsertedDB = 0; // Quantidade de novos cantores inseridos na tabela `cantor`
+  let totalPlaylistSongsLinked = 0; // Quantidade de músicas ligadas à nova playlist (na tabela `custom_playlist_songs`)
+
   // Caso o userId não seja fornecido (ex: usuário não logado ou em teste), tenta pegar o primeiro usuário do DB
   if (!userId) {
     console.warn("ID de usuário não fornecido para o upload da playlist. Tentando obter um usuário padrão.");
@@ -416,7 +426,10 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
 
               // 2. Gerenciamento do arquivo de áudio: busca e cópia se necessário
               findAndCopyMusicFile(fullFileName)
-                .then(() => {
+                .then(wasCopiedOrExisted => {
+                  if (wasCopiedOrExisted) {
+                    totalFilesHandled++; // Incrementa se o arquivo foi copiado ou já existia
+                  }
                   // 3. Verifica/Insere o Cantor
                   db.get(`SELECT id_cantor FROM cantor WHERE nome_cantor = ?`, [artistName], function (err, row) {
                     if (err) { console.error(`Erro ao buscar/inserir cantor '${artistName}':`, err); processSong(index + 1); return; }
@@ -429,6 +442,7 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
                       db.run(`INSERT INTO cantor (nome_cantor) VALUES (?)`, [artistName], function (err) {
                         if (err) { console.error(`Erro ao inserir cantor '${artistName}':`, err); processSong(index + 1); return; }
                         artistId = this.lastID;
+                        totalCantorsInsertedDB++; // Incrementa se um novo cantor foi inserido
                         console.log(`➕ Cantor '${artistName}' (ID: ${artistId}) inserido.`);
                       });
                     }
@@ -449,6 +463,7 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
                           function (err) {
                             if (err) { console.error(`Erro ao inserir música '${displayFileName}':`, err); processSong(index + 1); return; }
                             musicaId = this.lastID;
+                            totalSongsInsertedDB++; // Incrementa se uma nova música foi inserida
                             console.log(`➕ Música '${displayFileName}' (ID: ${musicaId}) inserida.`);
                           });
                       }
@@ -460,6 +475,9 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
                         function (err) {
                           if (err) { console.error("Erro ao inserir em custom_playlist_songs:", err); }
                           // Continua para a próxima música, independentemente do sucesso/falha desta inserção
+                            if (this.changes > 0) { // Incrementa se um novo link foi criado (não ignorado)
+                              totalPlaylistSongsLinked++;
+                            }
                           processSong(index + 1);
                         }
                       );
@@ -478,7 +496,14 @@ app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
       });
     });
 
-    res.json({ message: `Playlist '${playlistName}' e suas músicas processadas com sucesso! Arquivo .m3u8 carregado.` });
+    // --- Retorna os contadores na resposta ---
+    res.json({
+      message: `Playlist '${playlistName}' e suas músicas processadas com sucesso!`,
+      totalFilesHandled: totalFilesHandled,
+      totalSongsInserted: totalSongsInsertedDB,
+      totalCantorsInserted: totalCantorsInsertedDB,
+      totalPlaylistSongsLinked: totalPlaylistSongsLinked
+    });
   } catch (error) {
     console.error("Erro ao processar arquivo M3U8:", error);
     res.status(500).json({ error: `Erro ao processar arquivo M3U8: ${error.message}` });

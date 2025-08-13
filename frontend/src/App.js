@@ -203,7 +203,26 @@ const prevTrack = () => {
           'Content-Type': 'multipart/form-data', // Importante para enviar arquivos
         },
       });
-      alert(response.data.message);
+      
+
+      // --- Desestruturar a resposta para obter os novos contadores ---
+      const {
+        message,
+        totalFilesHandled,
+        totalSongsInserted,
+        totalCantorsInserted,
+        totalPlaylistSongsLinked
+      } = response.data;
+
+      // --- Atualizar o alerta com as informações detalhadas ---
+      alert(
+        `${message}\n` +
+        `✅ Arquivos de música tratados (copiados/existentes): ${totalFilesHandled}\n` +
+        `➕ Novas músicas inseridas no banco de dados: ${totalSongsInserted}\n` +
+        `🎤 Novos cantores inseridos no banco de dados: ${totalCantorsInserted}\n` +
+        `🔗 Músicas vinculadas à playlist: ${totalPlaylistSongsLinked}`
+      );
+
       setSelectedM3u8File(null); // Limpa o arquivo selecionado no estado
       if (fileInputRef.current) {
         fileInputRef.current.value = ''; // Limpa o campo de input de arquivo na UI
