@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import PlayerControls from './components/PlayerControls';
 import './App.css';
@@ -26,6 +26,9 @@ function App() {
   const [showCustomPlaylistSongs, setShowCustomPlaylistSongs] = useState(false); // Flag para mostrar músicas da playlist customizada
   const [customPlaylistSongs, setCustomPlaylistSongs] = useState([]); // Músicas da playlist customizada selecionada
 
+// NOVOS ESTADOS PARA UPLOAD M3U8
+  const [m3u8File, setM3u8File] = useState(null);
+  const fileInputRef = useRef(null); // Referência para o input de arquivo para limpá-lo
 
   const userId = user?.id;
   const activeItemRef = useRef(null);
@@ -165,6 +168,52 @@ const prevTrack = () => {
   setIsPlaying(true);
 };
 
+  // Extrair fetchCustomPlaylists para que possa ser chamado explicitamente
+  const fetchCustomPlaylists = useCallback(async () => {
+    try {
+      const res = await axios.get('http://170.233.196.50:5202/api/custom-playlists');
+      setCustomPlaylists(res.data);
+      if (res.data.length > 0 && !selectedCustomPlaylistId) {
+        setSelectedCustomPlaylistId(res.data[0].id);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar playlists customizadas:", err);
+    }
+  }, [selectedCustomPlaylistId]); // Adiciona selectedCustomPlaylistId como dependência
+
+// Função para lidar com o upload do arquivo M3U8
+  const handleM3u8FileUpload = async () => {
+    if (!m3u8File) {
+      alert("Por favor, selecione um arquivo .m3u8 para upload.");
+      return;
+    }
+    if (!user?.id) {
+      alert("Você precisa estar logado para criar playlists.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('m3u8file', m3u8File);
+    formData.append('user_id', user.id); // Envia o ID do usuário para o backend
+
+    try {
+      const response = await axios.post('http://170.233.196.50:5202/api/upload-m3u8', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data', // Importante para enviar arquivos
+        },
+      });
+      alert(response.data.message);
+      setM3u8File(null); // Limpa o arquivo selecionado no estado
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''; // Limpa o campo de input de arquivo na UI
+      }
+      fetchCustomPlaylists(); // Recarrega as playlists customizadas para mostrar a nova
+    } catch (error) {
+      console.error("Erro ao fazer upload do arquivo .m3u8:", error);
+      alert("Erro ao fazer upload do arquivo .m3u8: " + (error.response?.data?.error || error.message || "Erro desconhecido"));
+    }
+  };
+
 // App.txt - NOVO useEffect para carregar playlists customizadas
 useEffect(() => {
   const fetchCustomPlaylists = async () => {
@@ -180,7 +229,7 @@ useEffect(() => {
     }
   };
   fetchCustomPlaylists();
-}, []); // Roda uma vez na montagem do componente
+}, [selectedCustomPlaylistId]); // Roda uma vez na montagem do componente
 
 // App.txt - NOVO useEffect para carregar as músicas da playlist customizada selecionada
 useEffect(() => {
@@ -208,7 +257,35 @@ useEffect(() => {
 }, [selectedCustomPlaylistId, showCustomPlaylistSongs]); // Depende da playlist selecionada e da flag de exibição
 
 
+// NOVO useEffect para carregar playlists customizadas (agora usa useCallback)
+  useEffect(() => {
+    fetchCustomPlaylists();
+  }, [fetchCustomPlaylists]); // Adiciona fetchCustomPlaylists como dependência
 
+  // App.txt - NOVO useEffect para carregar as músicas da playlist customizada selecionada
+  useEffect(() => {
+    const fetchCustomPlaylistSongs = async () => {
+      if (selectedCustomPlaylistId && showCustomPlaylistSongs) {
+        try {
+          const res = await axios.get(`http://170.233.196.50:5202/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
+          const data = res.data.map(t => ({
+            ...t,
+            id_musica: t.id_musica ?? t.id
+          }));
+          setCustomPlaylistSongs(data);
+          if (data.length > 0 && !currentTrack) {
+            setCurrentTrack(data[0]);
+            cacheTracks(data.slice(0, 10));
+          }
+        } catch (err) {
+          console.error("Erro ao carregar músicas da playlist customizada:", err);
+        }
+      } else if (!showCustomPlaylistSongs) {
+        setCustomPlaylistSongs([]);
+      }
+    };
+    fetchCustomPlaylistSongs();
+  }, [selectedCustomPlaylistId, showCustomPlaylistSongs]);
 
   // manter estado do login
   useEffect(() => {
@@ -339,6 +416,28 @@ return (
       )}
 
       <div className="controls">
+        {/* NOVOS CONTROLES PARA UPLOAD DE M3U8 */}
+          <div className="m3u8-upload-section" style={{marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px'}}>
+            <h3>Importar Playlist (.m3u8)</h3>
+            <input
+              type="file"
+              accept=".m3u8"
+              onChange={(e) => setM3u8File(e.target.files[0])}
+              ref={fileInputRef} // Anexa a referência para limpar o input
+              style={{marginBottom: '10px', display: 'block'}}
+            />
+            <button
+              onClick={handleM3u8FileUpload}
+              disabled={!user?.id || !m3u8File} // Desabilita se não estiver logado ou nenhum arquivo selecionado
+              style={{padding: '8px 15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer'}}
+            >
+              Carregar Playlist
+            </button>
+            {!user?.id && <p style={{color: 'red', fontSize: '0.9em'}}>Faça login para importar playlists.</p>}
+          </div>
+
+
+
         <select value={selectedRadio} onChange={(e) => setSelectedRadio(e.target.value)}>
           <option value="1">Pop</option>
           <option value="2">Pop 2K</option>
@@ -483,6 +582,7 @@ return (
               {customPlaylistSongs.map((track, index) => (
                 <li
                   key={track.id}
+                  className={`${track.audio_url.length < 35 ? 'no-audio' : ''}`}
                   onClick={() => {
                     setCurrentTrack(track);
                     setCurrentTrackIndex(index);

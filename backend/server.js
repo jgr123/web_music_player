@@ -1,12 +1,63 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
+const multer = require('multer'); // Importa Multer para lidar com upload de arquivos
+const fs = require('fs-extra');   // Importa fs-extra para operações de sistema de arquivos (copy, pathExists)
+const path = require('path');     // Importa Path para manipular caminhos de arquivos
+const glob = require('fast-glob'); // Importa Fast-Glob para busca recursiva de arquivos
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 //const PORT = 5000;
 const PORT = 5202;
+
+// Configura o multer para armazenar arquivos temporariamente no diretório 'uploads/'
+const upload = multer({ dest: 'uploads/' });
+
+// --- Definição dos diretórios para gerenciamento de músicas ---
+// Caminho de destino onde as músicas devem estar para serem acessíveis pelo player
+const MUSIC_DEST_DIR = 'D:\Downloads\wpp-node\radio-player\frontend\public\music';
+// Caminho base onde o servidor irá procurar as músicas caso não estejam no diretório de destino
+const MUSIC_SEARCH_BASE_DIR = 'D:\deezer-downloader\playlists';
+
+// --- Função Auxiliar: Encontrar e Copiar Arquivo de Música ---
+/**
+ * Verifica se um arquivo de música existe no diretório de destino.
+ * Se não existir, tenta encontrá-lo recursivamente no diretório de busca e copiá-lo.
+ * @param {string} fileName O nome completo do arquivo de música (e.g., "Artista - Nome da Musica.mp3").
+ * @returns {Promise<boolean>} True se o arquivo foi encontrado/copiado com sucesso, false caso contrário.
+ */
+async function findAndCopyMusicFile(fileName) {
+  const targetPath = path.join(MUSIC_DEST_DIR, fileName);
+
+  // 1. Verifica se o arquivo já existe no diretório de destino
+  if (await fs.pathExists(targetPath)) {
+    console.log(`🎵 Arquivo '${fileName}' já existe em '${MUSIC_DEST_DIR}'.`);
+    return true; // Arquivo já existe, nada a fazer
+  }
+
+  // 2. Se não existe no destino, procura recursivamente no diretório de busca
+  console.log(`🔍 Procurando '${fileName}' em '${MUSIC_SEARCH_BASE_DIR}'...`);
+  try {
+    // Usa fast-glob para buscar o arquivo recursivamente
+    const entries = await glob(`**/${fileName}`, { cwd: MUSIC_SEARCH_BASE_DIR, unique: true });
+
+    if (entries.length > 0) {
+      const sourcePath = path.join(MUSIC_SEARCH_BASE_DIR, entries[0]); // Pega o primeiro resultado
+      console.log(`✅ Arquivo '${fileName}' encontrado em '${sourcePath}'. Copiando para '${MUSIC_DEST_DIR}'...`);
+      await fs.copy(sourcePath, targetPath); // Copia o arquivo
+      console.log(`👍 Arquivo '${fileName}' copiado com sucesso!`);
+      return true;
+    } else {
+      console.warn(`⚠️ Arquivo '${fileName}' NÃO encontrado em '${MUSIC_SEARCH_BASE_DIR}' ou subdiretórios.`);
+      return false;
+    }
+  } catch (searchOrCopyErr) {
+    console.error(`❌ Erro ao procurar ou copiar o arquivo '${fileName}':`, searchOrCopyErr);
+    return false;
+  }
+}
 
 // Conecta ao banco de dados SQLite
 //const db = new sqlite3.Database('./musicas_hunterfm.db', sqlite3.OPEN_READONLY, (err) => {
@@ -265,6 +316,167 @@ app.get('/api/custom-playlists/:playlist_id/songs', (req, res) => {
   );
 });
 
+
+// server.js - NOVA ROTA para upload de arquivos M3U8
+app.post('/api/upload-m3u8', upload.single('m3u8file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Nenhum arquivo .m3u8 enviado.' });
+    }
+
+    const m3u8FilePath = req.file.path;
+    // O nome da playlist será o nome do arquivo, removendo a extensão .m3u8
+    const playlistName = req.file.originalname.replace(/\.m3u8$/i, '');
+    const userId = req.body.user_id; // Recebe o ID do usuário logado do frontend
+
+    if (!userId) {
+        fs.unlinkSync(m3u8FilePath); // Limpa o arquivo temporário
+        return res.status(400).json({ error: 'ID do usuário não fornecido. Faça login para criar playlists.' });
+    }
+
+    // Usa db.serialize() para garantir que as operações do banco de dados ocorram em sequência (similar a uma transação)
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION;"); // Inicia uma transação para garantir atomicidade
+
+        // 1. Insere a nova playlist customizada na tabela 'custom_playlists'
+        db.run(
+            `INSERT INTO custom_playlists (name, created_by) VALUES (?, ?)`,
+            [playlistName, userId],
+            function (err) {
+                if (err) {
+                    db.run("ROLLBACK;"); // Reverte a transação em caso de erro
+                    fs.unlinkSync(m3u8FilePath); // Limpa o arquivo temporário
+                    console.error("Erro ao criar playlist customizada:", err);
+                    return res.status(500).json({ error: 'Erro ao criar playlist: ' + err.message });
+                }
+
+                const playlistId = this.lastID; // ID da playlist recém-criada
+                let orderInPlaylist = 0; // Para manter a ordem das músicas na playlist
+
+                try {
+                    // 2. Lê o conteúdo do arquivo .m3u8
+                    const m3u8Content = fs.readFileSync(m3u8FilePath, 'utf8');
+                    // Filtra linhas vazias e linhas de comentário/diretiva M3U8 (que começam com '#')
+                    const lines = m3u8Content.split(/\r?\n/).filter(line => line.trim() !== '' && !line.startsWith('#'));
+
+                    // Prepara statements para inserções otimizadas
+                    const stmtMusica = db.prepare(`INSERT INTO musica (id_cantor, nome_musica, nome_cantor_musica_hunterfm, arquivo) VALUES (?, ?, ?, ?)`);
+                    const stmtPlaylistSong = db.prepare(`INSERT OR IGNORE INTO custom_playlist_songs (playlist_id, musica_id, order_in_playlist) VALUES (?, ?, ?)`); // INSERT OR IGNORE para evitar duplicatas
+                    const stmtCantor = db.prepare(`INSERT INTO cantor (nome_cantor) VALUES (?)`);
+
+                    let processedSongsCount = 0;
+
+                    // Função assíncrona para processar cada linha (música) do arquivo .m3u8
+                    const processLine = (line) => {
+                        return new Promise((resolve, reject) => {
+                            const fileNameWithExt = line.trim(); // Ex: "Cantor - Nome da musica.mp3"
+                            if (!fileNameWithExt.endsWith('.mp3')) {
+                                console.warn(`Linha ignorada no .m3u8 (não termina com .mp3): ${line}`);
+                                return resolve(); // Ignora linhas que não são arquivos .mp3
+                            }
+
+                            const fileNameWithoutExt = fileNameWithExt.replace(/\.mp3$/i, ''); // Ex: "Cantor - Nome da musica"
+                            const parts = fileNameWithoutExt.split(' - ');
+                            let artistName = 'Artista Desconhecido';
+                            let songName = fileNameWithoutExt;
+
+                            if (parts.length >= 2) {
+                                artistName = parts[0].trim();
+                                songName = parts.slice(1).join(' - ').trim(); // Recompõe o nome da música caso tenha " - "
+                            } else {
+                                songName = fileNameWithoutExt; // Se não houver " - ", a linha toda é o nome da música
+                            }
+
+                            let cantorId;
+                            let musicaId;
+
+                            // Verifica e insere o cantor
+                            db.get(`SELECT id_cantor FROM cantor WHERE nome_cantor = ?`, [artistName], (err, row) => {
+                                if (err) { return reject(err); }
+
+                                if (row) {
+                                    cantorId = row.id_cantor;
+                                    checkAndInsertMusica();
+                                } else {
+                                    // Insere um novo cantor
+                                    stmtCantor.run(artistName, function(err) {
+                                        if (err) { return reject(err); }
+                                        cantorId = this.lastID; // Pega o ID do cantor recém-inserido
+                                        checkAndInsertMusica();
+                                    });
+                                }
+                            });
+
+                            // Verifica e insere a música
+                            const checkAndInsertMusica = () => {
+                                db.get(`SELECT id_musica FROM musica WHERE nome_musica = ? AND id_cantor = ?`, [songName, cantorId], (err, row) => {
+                                    if (err) { return reject(err); }
+
+                                    if (row) {
+                                        musicaId = row.id_musica;
+                                        insertPlaylistSong();
+                                    } else {
+                                        // Insere uma nova música
+                                        stmtMusica.run(cantorId, songName, fileNameWithoutExt, fileNameWithExt, function(err) {
+                                            if (err) { return reject(err); }
+                                            musicaId = this.lastID; // Pega o ID da música recém-inserida
+                                            insertPlaylistSong();
+                                        });
+                                    }
+                                });
+                            };
+
+                            // Insere a associação música-playlist
+                            const insertPlaylistSong = () => {
+                                stmtPlaylistSong.run(playlistId, musicaId, orderInPlaylist++, function(err) {
+                                    if (err) { return reject(err); }
+                                    if (this.changes > 0) { // Verifica se a linha foi realmente inserida (não ignorada)
+                                        processedSongsCount++;
+                                    }
+                                    resolve();
+                                });
+                            };
+                        });
+                    };
+
+                    // Processa todas as linhas sequencialmente para garantir a ordem e IDs corretos
+                    const processAllLines = async () => {
+                        for (const line of lines) {
+                            await processLine(line).catch(e => {
+                                console.error(`Erro ao processar linha '${line}' (continuando para a próxima):`, e);
+                                // A transação pode ser revertida aqui, ou podemos optar por continuar e logar o erro
+                                // Neste caso, optamos por logar e continuar, mas uma falha completa pode ser desejável dependendo da regra de negócio.
+                            });
+                        }
+
+                        // Finaliza os statements preparados
+                        stmtMusica.finalize();
+                        stmtPlaylistSong.finalize();
+                        stmtCantor.finalize();
+
+                        // Comita a transação se tudo deu certo
+                        db.run("COMMIT;", (err) => {
+                            if (err) {
+                                db.run("ROLLBACK;");
+                                console.error("Erro ao comitar transação:", err);
+                                return res.status(500).json({ error: 'Erro ao finalizar a criação da playlist: ' + err.message });
+                            }
+                            fs.unlinkSync(m3u8FilePath); // Limpa o arquivo temporário
+                            res.json({ message: `Playlist "${playlistName}" criada com sucesso com ${processedSongsCount} música(s).`, playlistId: playlistId });
+                        });
+                    };
+
+                    processAllLines(); // Inicia o processamento
+
+                } catch (readErr) {
+                    db.run("ROLLBACK;"); // Reverte a transação se houver erro na leitura do arquivo
+                    fs.unlinkSync(m3u8FilePath); // Limpa o arquivo temporário
+                    console.error("Erro ao ler arquivo .m3u8:", readErr);
+                    return res.status(500).json({ error: 'Erro ao ler arquivo .m3u8: ' + readErr.message });
+                }
+            }
+        );
+    });
+});
 
 
 // server.txt - Criação da tabela de playlists customizadas
