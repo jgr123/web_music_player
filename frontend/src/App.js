@@ -29,6 +29,7 @@ function App() {
 // NOVOS ESTADOS PARA UPLOAD M3U8
   const [m3u8File, setM3u8File] = useState(null);
   const fileInputRef = useRef(null); // Referência para o input de arquivo para limpá-lo
+  const [selectedM3u8File, setSelectedM3u8File] = useState(null);
 
   const userId = user?.id;
   const activeItemRef = useRef(null);
@@ -181,9 +182,9 @@ const prevTrack = () => {
     }
   }, [selectedCustomPlaylistId]); // Adiciona selectedCustomPlaylistId como dependência
 
-// Função para lidar com o upload do arquivo M3U8
-  const handleM3u8FileUpload = async () => {
-    if (!m3u8File) {
+// --- FUNÇÃO PARA LIDAR COM O UPLOAD DO ARQUIVO M3U8 ---
+  const handleM3u8Upload = async () => {
+    if (!selectedM3u8File) {
       alert("Por favor, selecione um arquivo .m3u8 para upload.");
       return;
     }
@@ -193,8 +194,8 @@ const prevTrack = () => {
     }
 
     const formData = new FormData();
-    formData.append('m3u8file', m3u8File);
-    formData.append('user_id', user.id); // Envia o ID do usuário para o backend
+    formData.append('m3u8File', selectedM3u8File); // 'm3u8File' deve corresponder ao nome do campo no Multer no backend
+    formData.append('userId', user.id); // Envia o ID do usuário logado
 
     try {
       const response = await axios.post('http://170.233.196.50:5202/api/upload-m3u8', formData, {
@@ -203,7 +204,7 @@ const prevTrack = () => {
         },
       });
       alert(response.data.message);
-      setM3u8File(null); // Limpa o arquivo selecionado no estado
+      setSelectedM3u8File(null); // Limpa o arquivo selecionado no estado
       if (fileInputRef.current) {
         fileInputRef.current.value = ''; // Limpa o campo de input de arquivo na UI
       }
@@ -416,25 +417,26 @@ return (
       )}
 
       <div className="controls">
-        {/* NOVOS CONTROLES PARA UPLOAD DE M3U8 */}
-          <div className="m3u8-upload-section" style={{marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px'}}>
-            <h3>Importar Playlist (.m3u8)</h3>
-            <input
-              type="file"
-              accept=".m3u8"
-              onChange={(e) => setM3u8File(e.target.files[0])}
-              ref={fileInputRef} // Anexa a referência para limpar o input
-              style={{marginBottom: '10px', display: 'block'}}
-            />
-            <button
-              onClick={handleM3u8FileUpload}
-              disabled={!user?.id || !m3u8File} // Desabilita se não estiver logado ou nenhum arquivo selecionado
-              style={{padding: '8px 15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer'}}
-            >
-              Carregar Playlist
-            </button>
-            {!user?.id && <p style={{color: 'red', fontSize: '0.9em'}}>Faça login para importar playlists.</p>}
-          </div>
+{/* --- NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
+        <div className="m3u8-upload-section" style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
+          <h3>Importar Playlist (.m3u8)</h3>
+          <input
+            type="file"
+            accept=".m3u8"
+            onChange={(e) => setSelectedM3u8File(e.target.files[0])}
+            ref={fileInputRef} // Anexa a referência para limpar o input
+            style={{ marginBottom: '10px', display: 'block' }}
+          />
+          <button
+            onClick={handleM3u8Upload}
+            disabled={!user?.id || !selectedM3u8File} // Desabilita se não estiver logado ou nenhum arquivo selecionado
+            style={{ padding: '8px 15px', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
+          >
+            Carregar Playlist
+          </button>
+          {!user?.id && <p style={{ color: 'red', fontSize: '0.9em' }}>Faça login para importar playlists.</p>}
+        </div>
+        {/* --- FIM DO NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
 
 
 
