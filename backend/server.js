@@ -4,7 +4,7 @@ const cors = require('cors');
 const multer = require('multer'); // Importa Multer para lidar com upload de arquivos
 const fs = require('fs-extra');   // Importa fs-extra para operações de sistema de arquivos (copy, pathExists)
 const path = require('path');     // Importa Path para manipular caminhos de arquivos
-const glob = require('fast-glob'); // Importa Fast-Glob para busca recursiva de arquivos
+const fg = require('fast-glob'); // Importa fast-glob para escapePath
 
 const app = express();
 app.use(cors());
@@ -21,40 +21,61 @@ const MUSIC_DEST_DIR = 'D:/Downloads/wpp-node/radio-player/frontend/public/music
 // Caminho base onde o servidor irá procurar as músicas caso não estejam no diretório de destino
 const MUSIC_SEARCH_BASE_DIR = 'D:/deezer-downloader/playlists';
 
-// --- Função Auxiliar: Encontrar e Copiar Arquivo de Música ---
-/**
- * Verifica se um arquivo de música existe no diretório de destino.
- * Se não existir, tenta encontrá-lo recursivamente no diretório de busca e copiá-lo.
- * @param {string} fileName O nome completo do arquivo de música (e.g., "Artista - Nome da Musica.mp3").
- * @returns {Promise<boolean>} True se o arquivo foi encontrado/copiado com sucesso, false caso contrário.
- */
+// --- Funções Auxiliares de Promise para SQLite ---
+function dbGet(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
+function dbRun(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) { // Usar 'function' para ter acesso a 'this.lastID'
+      if (err) return reject(err);
+      resolve(this); // Resolve com o contexto para acessar lastID, changes etc.
+    });
+  });
+}
+
+// Para transações
+function dbBeginTransaction() {
+  return dbRun("BEGIN TRANSACTION;");
+}
+
+function dbCommitTransaction() {
+  return dbRun("COMMIT;");
+}
+
+function dbRollbackTransaction() {
+  return dbRun("ROLLBACK;");
+}
+
 async function findAndCopyMusicFile(fileName) {
   const targetPath = path.join(MUSIC_DEST_DIR, fileName);
-  // 1. Verifica se o arquivo já existe no diretório de destino
+
   if (await fs.pathExists(targetPath)) {
     console.log(`🎵 Arquivo '${fileName}' já existe em '${MUSIC_DEST_DIR}'.`);
-    return true; // Arquivo já existe, nada a fazer
+    return true;
   }
 
-  // 2. Se não existe no destino, procura recursivamente no diretório de busca
   console.log(`🔍 Procurando '${fileName}' em '${MUSIC_SEARCH_BASE_DIR}'...`);
   try {
-    // CORREÇÃO FINAL: Usar micromatch.escape para escapar caracteres especiais
-    // Esta é a função correta para escapar strings literais para uso em padrões glob.
-    const escapedFileName = glob.escapePath(fileName); // <--- AQUI ESTÁ A CORREÇÃO FINAL!
-    const pattern = `**/${escapedFileName}`; // Usa o nome do arquivo escapado no padrão de busca
+    const escapedFileName = fg.escapePath(fileName);
+    const pattern = `**/${escapedFileName}`;
 
-    // Usa fast-glob para buscar o arquivo recursivamente
-    const entries = await glob(pattern, { cwd: MUSIC_SEARCH_BASE_DIR, unique: true });
+    const entries = await fg(pattern, { cwd: MUSIC_SEARCH_BASE_DIR, unique: true });
 
     if (entries.length > 0) {
-      const sourcePath = path.join(MUSIC_SEARCH_BASE_DIR, entries[0]); // Pega o primeiro resultado
+      const sourcePath = path.join(MUSIC_SEARCH_BASE_DIR, entries[0]);
       console.log(`✅ Arquivo '${fileName}' encontrado em '${sourcePath}'. Copiando para '${MUSIC_DEST_DIR}'...`);
-      await fs.copy(sourcePath, targetPath); // Copia o arquivo
+      await fs.copy(sourcePath, targetPath);
       console.log(`👍 Arquivo '${fileName}' copiado com sucesso!`);
       return true;
     } else {
-      console.warn(`⚠️ ---------------- Arquivo '${fileName}' NÃO encontrado em '${MUSIC_SEARCH_BASE_DIR}' ou subdiretórios.`);
+      console.warn(`⚠️ Arquivo '${fileName}' NÃO encontrado em '${MUSIC_SEARCH_BASE_DIR}' ou subdiretórios.`);
       return false;
     }
   } catch (searchOrCopyErr) {
@@ -63,15 +84,157 @@ async function findAndCopyMusicFile(fileName) {
   }
 }
 
+const db = new sqlite3.Database('./musicas_hunterfm.db', sqlite3.READWRITE, (err) => {
+  if (err) {
+    console.error('Erro ao conectar ao banco de dados:', err);
+  } else {
+    console.log('Conectado ao banco de dados SQLite');
+  }
+});
+
+app.post('/api/upload-m3u8', upload.single('m3u8File'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo .m3u8 foi enviado.' });
+  }
+
+  const m3u8FilePath = req.file.path;
+  const playlistFileName = req.file.originalname;
+  let playlistName = playlistFileName.replace(/\.m3u8$/i, '');
+
+  if (playlistName.length > 3) {
+    playlistName = playlistName.substring(3);
+  } else {
+    playlistName = playlistName; // Manter nome original se muito curto, ou ""
+    console.warn(`Nome da playlist '${playlistFileName}' é muito curto para remover os 3 primeiros caracteres. Mantido como '${playlistName}'.`);
+  }
+
+  let userId = req.body.userId;
+
+  let totalFilesHandled = 0;
+  let totalSongsInsertedDB = 0;
+  let totalCantorsInsertedDB = 0;
+  let totalPlaylistSongsLinked = 0;
+  let playlistId;
+
+  try {
+    if (!userId) {
+      console.warn("ID de usuário não fornecido para o upload da playlist. Tentando obter um usuário padrão.");
+      const users = await dbGet(`SELECT id FROM users LIMIT 1`); // Usando dbGet Promise
+      if (users) {
+        userId = users.id;
+        console.log(`Usando ID de usuário padrão: ${userId}`);
+      } else {
+        await fs.remove(m3u8FilePath);
+        return res.status(400).json({ error: 'Nenhum usuário logado ou registrado para criar a playlist. Por favor, faça login ou registre-se.' });
+      }
+    }
+
+    await dbBeginTransaction(); // Inicia a transação
+
+    // 1. Insere a nova playlist customizada
+    const playlistResult = await dbRun(
+      `INSERT INTO custom_playlists (name, description, created_by) VALUES (?, ?, ?)`,
+      [playlistName, `Playlist gerada do arquivo ${playlistFileName}`, userId]
+    );
+    playlistId = playlistResult.lastID;
+    console.log(`✅ Playlist '${playlistName}' (ID: ${playlistId}) criada com sucesso.`);
+
+    const m3u8Content = await fs.readFile(m3u8FilePath, 'utf8');
+    const lines = m3u8Content.split('\n');
+    const songLines = lines.filter(line => line.trim().endsWith('.mp3'));
+
+    let orderInPlaylist = 0;
+
+    // Processa cada música sequencialmente
+    for (const fullFileName of songLines) {
+      const trimmedFileName = fullFileName.trim();
+      const displayFileName = trimmedFileName.replace(/\.mp3$/i, '');
+
+      let artistName = 'Unknown Artist';
+      let songName = displayFileName;
+
+      const firstDashIndex = displayFileName.indexOf(' - ');
+      if (firstDashIndex !== -1) {
+        artistName = displayFileName.substring(0, firstDashIndex).trim();
+        songName = displayFileName.substring(firstDashIndex + 3).trim();
+      }
+
+      console.log(`Processando música: '${trimmedFileName}'`);
+
+      try {
+        // 2. Gerenciamento do arquivo de áudio: busca e cópia se necessário
+        const wasCopiedOrExisted = await findAndCopyMusicFile(trimmedFileName);
+        if (wasCopiedOrExisted) {
+          totalFilesHandled++;
+        }
+
+        let currentArtistId;
+        // 3. Verifica/Insere o Cantor
+        let cantorRow = await dbGet(`SELECT id_cantor FROM cantor WHERE nome_cantor = ?`, [artistName]);
+        if (cantorRow) {
+          currentArtistId = cantorRow.id_cantor;
+        } else {
+          const cantorResult = await dbRun(`INSERT INTO cantor (nome_cantor) VALUES (?)`, [artistName]);
+          currentArtistId = cantorResult.lastID;
+          totalCantorsInsertedDB++;
+          console.log(`➕ Cantor '${artistName}' (ID: ${currentArtistId}) inserido.`);
+        }
+
+        let currentMusicaId;
+        // 4. Verifica/Insere a Música
+        let musicaRow = await dbGet(`SELECT id_musica FROM musica WHERE nome_cantor_musica_hunterfm = ?`, [displayFileName]);
+        if (musicaRow) {
+          currentMusicaId = musicaRow.id_musica;
+        } else {
+          const musicaResult = await dbRun(
+            `INSERT INTO musica (id_cantor, nome_musica, nome_cantor_musica_hunterfm, arquivo) VALUES (?, ?, ?, ?)`,
+            [currentArtistId, songName, displayFileName, trimmedFileName]
+          );
+          currentMusicaId = musicaResult.lastID;
+          totalSongsInsertedDB++;
+          console.log(`➕ Música '${displayFileName}' (ID: ${currentMusicaId}) inserida.`);
+        }
+
+        // 5. Insere o relacionamento entre a playlist e a música
+        const playlistSongResult = await dbRun(
+          `INSERT OR IGNORE INTO custom_playlist_songs (playlist_id, musica_id, order_in_playlist) VALUES (?, ?, ?)`,
+          [playlistId, currentMusicaId, orderInPlaylist++]
+        );
+        if (playlistSongResult.changes > 0) {
+          totalPlaylistSongsLinked++;
+        }
+
+      } catch (songProcessingError) {
+        console.error(`❌ Erro ao processar música '${trimmedFileName}':`, songProcessingError);
+        // Continua para a próxima música mesmo em caso de erro individual
+      }
+    }
+
+    await dbCommitTransaction(); // Comita a transação após processar todas as músicas
+
+    res.json({
+      message: `Playlist '${playlistName}' e suas músicas processadas com sucesso!`,
+      totalFilesHandled: totalFilesHandled,
+      totalSongsInserted: totalSongsInsertedDB,
+      totalCantorsInserted: totalCantorsInsertedDB,
+      totalPlaylistSongsLinked: totalPlaylistSongsLinked
+    });
+
+  } catch (mainError) {
+    console.error("Erro geral ao processar arquivo M3U8:", mainError);
+    await dbRollbackTransaction(); // Desfaz a transação em caso de erro geral
+    res.status(500).json({ error: `Erro ao processar arquivo M3U8: ${mainError.message}` });
+  } finally {
+    if (m3u8FilePath) {
+      await fs.remove(m3u8FilePath);
+      console.log(`🗑️ Arquivo temporário '${m3u8FilePath}' removido.`);
+    }
+  }
+});
+
 // Conecta ao banco de dados SQLite
 //const db = new sqlite3.Database('./musicas_hunterfm.db', sqlite3.OPEN_READONLY, (err) => {
-const db = new sqlite3.Database('./musicas_hunterfm.db', sqlite3.READWRITE, (err) => {
-    if (err) {
-        console.error('Erro ao conectar ao banco de dados:', err);
-    } else {
-        console.log('Conectado ao banco de dados SQLite');
-    }
-});
+
 
 // server.js - Rota ajustada
 app.get('/api/playlists', (req, res) => {
