@@ -26,8 +26,10 @@ function App() {
   const [showCustomPlaylistSongs, setShowCustomPlaylistSongs] = useState(false); // Flag para mostrar músicas da playlist customizada
   const [customPlaylistSongs, setCustomPlaylistSongs] = useState([]); // Músicas da playlist customizada selecionada
 
+  // --- NOVO ESTADO: Para controlar a visibilidade da div de controles ---
+  const [showControlsDiv, setShowControlsDiv] = useState(true); // Começa visível
+
 // NOVOS ESTADOS PARA UPLOAD M3U8
-  const [m3u8File, setM3u8File] = useState(null);
   const fileInputRef = useRef(null); // Referência para o input de arquivo para limpá-lo
   const [selectedM3u8File, setSelectedM3u8File] = useState(null);
 
@@ -429,25 +431,22 @@ return (
         Sair
       </button>
 
+      {/* --- NOVO BOTÃO PARA MOSTRAR/ESCONDER CONTROLES --- */}
+      <button
+        onClick={() => setShowControlsDiv(!showControlsDiv)}
+        style={{ marginBottom: '20px' }} // Espaço maior para o botão de toggle
+      >
+        {showControlsDiv ? 'Esconder Controles' : 'Mostrar Controles'}
+      </button>
+      {/* --- FIM DO NOVO BOTÃO --- */}
+
       {!isOnline && (
         <div className="offline-status">
           Modo offline - reproduzindo do cache
         </div>
       )}
 
-      <div className="controls">
-{/* --- NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
-        <select value={selectedRadio} onChange={(e) => setSelectedRadio(e.target.value)}>
-          <option value="1">Pop</option>
-          <option value="2">Pop 2K</option>
-        </select>
-
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-        />
-
+      <div className="controls" style={{ display: showControlsDiv ? 'block' : 'none' }}>
         <button onClick={handleToggleFavorites}>
           {favoritesOnly ? "Mostrar todas" : "Somente favoritas"}
         </button>
@@ -464,6 +463,16 @@ return (
         >
           {showOfflineTracks ? "Mostrar todas" : "Mostrar offline"}
         </button>
+        <select value={selectedRadio} onChange={(e) => setSelectedRadio(e.target.value)}>
+          <option value="1">Pop</option>
+          <option value="2">Pop 2K</option>
+        </select>
+
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+        />
       {/* NOVOS CONTROLES PARA PLAYLISTS CUSTOMIZADAS */}
         {customPlaylists.length > 0 && (
           <>
@@ -479,6 +488,7 @@ return (
               // Desativa se não há playlists customizadas para selecionar
               disabled={customPlaylists.length === 0}
             >
+{/* --- NOVO BLOCO PARA UPLOAD DE M3U8 --- */}
               <option value="">Selecione uma Playlist Customizada</option>
               {customPlaylists.map(playlist => (
                 <option key={playlist.id} value={playlist.id}>
