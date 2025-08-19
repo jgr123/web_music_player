@@ -1,10 +1,10 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import PlayerControls from './components/PlayerControls';
-import './App.css';
-import { cacheTracks, getCachedTracks } from './utils/offlineCache'; // Importe a função getCachedTracks
+import './App.css';// Importe as novas funções do offlineCache
+import { cacheTracks, getCachedTracks, removeTrack, clearAllTracks } from './utils/offlineCache';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
-import { FaThumbsUp, FaThumbsDown } from 'react-icons/fa';
+import { FaThumbsUp, FaThumbsDown, FaTrash } from 'react-icons/fa';
 
 function App() {
   const [playlists, setPlaylists] = useState([]);
@@ -170,6 +170,53 @@ const prevTrack = () => {
   setCurrentTrack(activeList[newIndex]);
   setIsPlaying(true);
 };
+
+
+// NOVO: Handlers para remover músicas offline
+  const handleRemoveOfflineTrack = async (trackIdToRemove) => {
+    if (!window.confirm("Tem certeza que deseja remover esta música do cache offline?")) {
+      return;
+    }
+    try {
+      await removeTrack(trackIdToRemove.toString()); // Garante que o ID é string para o IndexedDB
+      // Recarrega as músicas offline após a remoção
+      await loadOfflineTracks();
+      // Ajusta a música atual se a música removida era a que estava tocando
+      if (currentTrack?.id.toString() === trackIdToRemove.toString()) {
+        const newActiveList = getCurrentActiveList(); // Obtém a lista atualizada
+        if (newActiveList.length > 0) {
+          setCurrentTrack(newActiveList[0]); // Toca a primeira música da nova lista
+          setCurrentTrackIndex(0);
+        } else {
+          setCurrentTrack(null); // Nenhuma música restante
+          setIsPlaying(false);
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao remover música offline:", error);
+      alert("Não foi possível remover a música offline. Verifique o console para mais detalhes.");
+    }
+  };
+
+  const handleClearAllOfflineTracks = async () => {
+    if (!window.confirm("Tem certeza que deseja remover TODAS as músicas do cache offline? Esta ação é irreversível.")) {
+      return;
+    }
+    try {
+      await clearAllTracks();
+      await loadOfflineTracks(); // Recarrega para mostrar a lista vazia
+      setCurrentTrack(null); // Limpa a música que está tocando
+      setIsPlaying(false);
+      setCurrentTrackIndex(0);
+      alert("Todas as músicas foram removidas do cache offline.");
+    } catch (error) {
+      console.error("Erro ao limpar cache offline:", error);
+      alert("Não foi possível limpar o cache offline. Verifique o console para mais detalhes.");
+    }
+  };
+
+
+
 
   // Extrair fetchCustomPlaylists para que possa ser chamado explicitamente
   const fetchCustomPlaylists = useCallback(async () => {
@@ -516,6 +563,20 @@ return (
             </button>
           </>
         )}
+
+        {/* NOVO: Botão para remover TODAS as músicas offline */}
+        {showOfflineTracks && offlineTracks.length > 0 && (
+          <div style={{ marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px' }}>
+            <button
+              onClick={handleClearAllOfflineTracks}
+              style={{ backgroundColor: '#dc3545', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer' }}
+            >
+              Remover TODAS as Músicas Offline
+            </button>
+          </div>
+        )}
+
+
         <div className="m3u8-upload-section" style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '8px' }}>
           <h3>Importar Playlist (.m3u8)</h3>
           <input
@@ -570,6 +631,17 @@ return (
                   style={{ backgroundColor: (currentTrack?.id === track.id) ? '#e3f2fd' : 'transparent' }}
                 >
                   <strong>{track.nome_cantor_musica_hunterfm}</strong>
+                  {/* NOVO: Ícone de lixeira para remover música offline individualmente */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // Previne que o clique no <li> seja disparado
+                      handleRemoveOfflineTrack(track.id);
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#dc3545', cursor: 'pointer', marginLeft: '10px' }}
+                    title={`Remover ${track.nome_cantor_musica_hunterfm} do cache offline`}
+                  >
+                    <FaTrash />
+                  </button>
                 </li>
               ))}
             </ul>

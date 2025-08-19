@@ -134,3 +134,43 @@ export const getCachedTracks = async () => {
     return [];
   }
 };
+
+// NOVO: Função para remover uma track específica pelo ID
+export async function removeTrack(id) {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+
+  return new Promise((resolve, reject) => {
+    const request = store.delete(id.toString()); // Garante que o ID é string para a remoção
+
+    request.onsuccess = () => {
+      console.log(`Track ${id} removida do cache.`);
+      resolve();
+    };
+    request.onerror = (event) => {
+      console.error(`Erro ao remover track ${id}:`, event.target.error);
+      reject(event.target.error);
+    };
+  });
+}
+
+// NOVO: Função para limpar todas as tracks do cache
+export async function clearAllTracks() {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+
+  return new Promise((resolve, reject) => {
+    const request = store.clear();
+
+    request.onsuccess = () => {
+      console.log("Todas as tracks foram limpas do cache.");
+      resolve();
+    };
+    request.onerror = (event) => {
+      console.error("Erro ao limpar todas as tracks:", event.target.error);
+      reject(event.target.error);
+    };
+  });
+}
