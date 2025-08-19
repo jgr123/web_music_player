@@ -58,7 +58,7 @@ const PlayerControls = ({
     if (!id_musica) return;
 
     try {
-      await axios.post('http://170.233.196.50:5202/api/rate', {
+      await axios.post('http://170.233.196.50:3011/api/rate', {
         id_musica,
         user_id: userId,
         rating: newRating
@@ -175,7 +175,7 @@ useEffect(() => {
       if (!id_musica) return;
 
       try {
-        const res = await axios.get(`http://170.233.196.50:5202/api/ratings/${userId}`);
+        const res = await axios.get(`http://170.233.196.50:3011/api/ratings/${userId}`);
         const found = res.data.find(r => r.id_musica === id_musica);
         setRating(found?.rating ?? null);
       } catch (err) {

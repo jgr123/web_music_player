@@ -10,7 +10,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 //const PORT = 5000;
-const PORT = 5202;
+//const PORT = 5202;
+const PORT = 3011;
 
 // Configura o multer para armazenar arquivos temporariamente no diretório 'uploads/'
 const upload = multer({ dest: 'uploads/' });

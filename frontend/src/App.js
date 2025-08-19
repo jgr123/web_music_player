@@ -69,7 +69,7 @@ useEffect(() => {
 
   const fetchRatings = async () => {
     try {
-      const res = await axios.get(`http://170.233.196.50:5202/api/ratings/${userId}`);
+      const res = await axios.get(`http://170.233.196.50:3011/api/ratings/${userId}`);
       setRatings(res.data);
     } catch (err) {
       console.error("Erro ao carregar avaliações:", err);
@@ -78,7 +78,7 @@ useEffect(() => {
 
   const fetchFavorites = async () => {
     try {
-      const res = await axios.get(`http://170.233.196.50:5202/api/favorites/${userId}`);
+      const res = await axios.get(`http://170.233.196.50:3011/api/favorites/${userId}`);
       // Adiciona id_musica ao track para avaliações
       const withIdMusica = res.data.map(t => ({ ...t, id_musica: t.id }));
       setFavoriteTracks(withIdMusica);
@@ -89,7 +89,7 @@ useEffect(() => {
 
   const fetchPlaylists = async () => {
     try {
-      const response = await axios.get('http://170.233.196.50:5202/api/playlists', {
+      const response = await axios.get('http://170.233.196.50:3011/api/playlists', {
         params: {
           id_radio_hunter: selectedRadio,
           data: selectedDate.replace(/-/g, '/')
@@ -221,7 +221,7 @@ const prevTrack = () => {
   // Extrair fetchCustomPlaylists para que possa ser chamado explicitamente
   const fetchCustomPlaylists = useCallback(async () => {
     try {
-      const res = await axios.get('http://170.233.196.50:5202/api/custom-playlists');
+      const res = await axios.get('http://170.233.196.50:3011/api/custom-playlists');
       setCustomPlaylists(res.data);
       if (res.data.length > 0 && !selectedCustomPlaylistId) {
         setSelectedCustomPlaylistId(res.data[0].id);
@@ -247,7 +247,7 @@ const prevTrack = () => {
     formData.append('userId', user.id); // Envia o ID do usuário logado
 
     try {
-      const response = await axios.post('http://170.233.196.50:5202/api/upload-m3u8', formData, {
+      const response = await axios.post('http://170.233.196.50:3011/api/upload-m3u8', formData, {
         headers: {
           'Content-Type': 'multipart/form-data', // Importante para enviar arquivos
         },
@@ -287,7 +287,7 @@ const prevTrack = () => {
 useEffect(() => {
   const fetchCustomPlaylists = async () => {
     try {
-      const res = await axios.get('http://170.233.196.50:5202/api/custom-playlists');
+      const res = await axios.get('http://170.233.196.50:3011/api/custom-playlists');
       setCustomPlaylists(res.data);
       // Opcional: seleciona automaticamente a primeira playlist customizada se houver alguma
       if (res.data.length > 0 && !selectedCustomPlaylistId) {
@@ -305,7 +305,7 @@ useEffect(() => {
   const fetchCustomPlaylistSongs = async () => {
     if (selectedCustomPlaylistId && showCustomPlaylistSongs) {
       try {
-        const res = await axios.get(`http://170.233.196.50:5202/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
+        const res = await axios.get(`http://170.233.196.50:3011/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
         const data = res.data.map(t => ({
           ...t,
           id_musica: t.id_musica ?? t.id // Garante que 'id_musica' esteja sempre presente para o player
@@ -336,7 +336,7 @@ useEffect(() => {
     const fetchCustomPlaylistSongs = async () => {
       if (selectedCustomPlaylistId && showCustomPlaylistSongs) {
         try {
-          const res = await axios.get(`http://170.233.196.50:5202/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
+          const res = await axios.get(`http://170.233.196.50:3011/api/custom-playlists/${selectedCustomPlaylistId}/songs`);
           const data = res.data.map(t => ({
             ...t,
             id_musica: t.id_musica ?? t.id
@@ -433,7 +433,7 @@ useEffect(() => {
           const username = e.target.username.value;
           const password = e.target.password.value;
           try {
-            const res = await axios.post('http://170.233.196.50:5202/api/login', { username, password });
+            const res = await axios.post('http://170.233.196.50:3011/api/login', { username, password });
             setUser(res.data);
             localStorage.setItem('user', JSON.stringify(res.data));
           } catch (err) {
@@ -450,7 +450,7 @@ useEffect(() => {
           const username = e.target.username.value;
           const password = e.target.password.value;
           try {
-            await axios.post('http://170.233.196.50:5202/api/register', { username, password });
+            await axios.post('http://170.233.196.50:3011/api/register', { username, password });
             alert("Usuário criado com sucesso. Faça o login.");
           } catch (err) {
             alert("Erro no registro: " + err.response?.data?.error);
